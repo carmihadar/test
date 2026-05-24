@@ -1,0 +1,250 @@
+param(
+    [string]$resourceGroup = @("PAVD-AVD-DevTST"),
+    [string]$hostPool = @("PAVD-DevTST-hp"),
+    [int]$MaxWaitSeconds = 900      # 15 minutes max wait
+)
+Connect-AzAccount -Identity  | Out-Null
+
+function Wait-ForVm {
+    param(
+        [string]$rg,
+        [string]$vmName,
+        [string]$desiredState,
+        [int]$maxWaitSeconds = 900
+    )
+
+    $elapsed = 0
+
+    do {
+        Start-Sleep -Seconds 15
+        $elapsed += 15
+
+        $vm = Get-AzVM -ResourceGroupName $rg -Name $vmName -Status
+        $powerState = ($vm.Statuses | Where-Object Code -like "PowerState/*").Code
+
+        Write-Output "Current state: $powerState (elapsed: ${elapsed}s)"
+
+        if ($elapsed -ge $maxWaitSeconds) {
+            $falseCount++
+            Write-Output "Timeout waiting for VM $vmName to reach $desiredState. Last state: $powerState"
+            return $false
+        }
+
+    } until ($powerState -eq $desiredState)
+
+    Write-Output "VM reached desired state: $desiredState ✌️"
+}
+
+function Disable-DrainMode {
+    param (
+        [string]$rg,
+        [string]$hostPool,
+        [string]$vmName,
+        [string]$sessionHostName
+    )
+    Update-AzWvdSessionHost -ResourceGroupName $rg -HostPoolName $hostPool -Name $sessionHostName -AllowNewSession:$true | Out-Null
+    Write-Output "Drain mode disabled for $sessionHostName 🔓"
+}
+
+$ScriptBlock = {
+    $fState = (Get-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V).State
+
+    if ($fState -ne 'Enabled') {
+        Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All -NoRestart | Out-Null
+        'CHANGED'
+    }
+    else {
+        'OK'
+    }
+}
+try {
+    $allSessionHosts = Get-AzWvdSessionHost -ResourceGroupName $resourceGroup -HostPoolName $hostPool
+
+    $sessionHosts = $allSessionHosts | Where-Object {
+        $vmName = $_.Name.Split("/")[-1].Split(".")[0]
+        $vm = Get-AzVM -ResourceGroupName $resourceGroup -Name $vmName
+        $vm.Tags["HibernationEnabled"] -ne "true"
+    } | Select-Object -First 18
+
+    if (-not $sessionHosts) {
+        Write-Output "No session hosts require hibernation configuration. Exiting. 🎉"
+        return 
+    }
+
+
+    Write-Output "Total session hosts: $($allSessionHosts.Count)"
+    Write-Output "Selected session hosts: $($sessionHosts.Count)"
+
+    $succeedCount = 0
+    $falseCount = 0
+
+    foreach ($sessionHost in $sessionHosts) {
+        $sessionHostName = $sessionHost.Name.Split("/")[-1]
+        $vm = Get-AzVM -ResourceGroupName $resourceGroup -Name $sessionHostName
+        $tags = $vm.Tags
+
+        Write-Output "Checking host: $sessionHostName"
+        if ($tags["HibernationEnabled"] -eq "true") {
+            Write-Output "Skipping - $sessionHostName is already configured ⏭️"
+            continue
+        }
+
+        $sessions = Get-AzWvdUserSession `
+            -ResourceGroupName $resourceGroup `
+            -HostPoolName $hostPool `
+            -SessionHostName $sessionHostName `
+            -ErrorAction SilentlyContinue
+
+        $activeSessions = @($sessions) | Where-Object {
+            $_.SessionState -eq "Active"
+        }
+
+        if (-not $activeSessions) {
+            $vmName = $sessionHostName.Split(".")[0]
+
+            $vm = Get-AzVM -ResourceGroupName $resourceGroup -Name $vmName -Status
+
+            $powerState = ($vm.Statuses | Where-Object { $_.Code -like "PowerState/*" }).Code
+
+            Write-Output "No active sessions. VM state: $powerState ℹ️"
+
+            if ($powerState -eq "PowerState/running") {
+                Write-Output "Stopping VM... 🔌"
+
+                Stop-AzVM -ResourceGroupName $resourceGroup -Name $vmName -Force | Out-Null
+
+                $result = Wait-ForVm -rg $resourceGroup -vmName $vmName -desiredState "PowerState/deallocated" -maxWaitSeconds $MaxWaitSeconds
+
+                if ($result -eq $false) {
+                    Disable-DrainMode -rg $resourceGroup -hostPool $hostPool -vmName $vmName -sessionHostName $sessionHostName
+                    continue
+                }
+            }
+
+            $vm = Get-AzVM -ResourceGroupName $resourceGroup -Name $vmName -Status
+            $powerState = ($vm.Statuses | Where-Object { $_.Code -like "PowerState/*" }).Code
+            $powerState = @($powerState)[0]
+
+            if ($powerState -eq "PowerState/deallocated") {
+                Update-AzWvdSessionHost -ResourceGroupName $resourceGroup -HostPoolName $hostPool -Name $sessionHostName -AllowNewSession:$false | Out-Null
+
+                Write-Output "Drain mode enabled for $sessionHostName 🔧"
+
+                Write-Output "Starting VM... 🔌"
+
+                Start-AzVM -ResourceGroupName $resourceGroup -Name $vmName -ErrorAction SilentlyContinue | Out-Null
+
+                $result = Wait-ForVm -rg $resourceGroup -vmName $vmName -desiredState "PowerState/running" -maxWaitSeconds $MaxWaitSeconds
+
+                if ($result -eq $false) {
+                    Disable-DrainMode -rg $resourceGroup -hostPool $hostPool -vmName $vmName -sessionHostName $sessionHostName
+                    continue
+                }
+
+                Write-Output "Checking / enabling Hyper-V... 🔍"
+                if ($tags["HyperVEnabled"] -ne "true") {
+                    $result = Invoke-AzVMRunCommand -ResourceGroupName $resourceGroup -Name $vmName -CommandId 'RunPowerShellScript' -ScriptString $ScriptBlock
+
+                    Write-Output "Run command completed"
+
+                    Start-Sleep -Seconds 15
+
+                    $output = ($result.Value | ForEach-Object { $_.Message }) -join "`n"
+
+                    if ($output -match "CHANGED") {
+                        Write-Output "Hyper-V enabled 🚀"
+
+                        $vm = Get-AzVM -ResourceGroupName $resourceGroup -Name $vmName
+
+                        Update-AzTag -ResourceId $vm.Id -Tag @{ HyperVEnabled = "true" } -Operation Merge | Out-Null
+                    }
+                }
+                else {
+                    Write-Output "Hyper-V already configured 🧩"
+                }
+
+                Write-Output "Stopping VM... 🔌"
+
+                Stop-AzVM -ResourceGroupName $resourceGroup -Name $vmName -Force | Out-Null
+
+                $result = Wait-ForVm -rg $resourceGroup -vmName $vmName -desiredState "PowerState/deallocated" -maxWaitSeconds $MaxWaitSeconds
+
+                if ($result -eq $false) {
+                    Disable-DrainMode -rg $resourceGroup -hostPool $hostPool -vmName $vmName -sessionHostName $sessionHostName
+                    continue
+                }
+
+                Write-Output "Enabling hibernation... 💤"
+
+                $vm = Get-AzVM -ResourceGroupName $resourceGroup -Name $vmName
+
+                if (-not $vm.AdditionalCapabilities) {
+                    $vm.AdditionalCapabilities = New-Object Microsoft.Azure.Management.Compute.Models.AdditionalCapabilities
+                }
+
+                $vm.AdditionalCapabilities.HibernationEnabled = $true
+
+                Update-AzVM -ResourceGroupName $resourceGroup -VM $vm | Out-Null
+
+                Disable-DrainMode -rg $resourceGroup -hostPool $hostPool -vmName $vmName -sessionHostName $sessionHostName
+
+                Write-Output "Starting VM... 🔌"
+
+                Start-AzVM -ResourceGroupName $resourceGroup -Name $vmName -ErrorAction SilentlyContinue | Out-Null
+
+                $result = Wait-ForVm -rg $resourceGroup -vmName $vmName -desiredState "PowerState/running" -maxWaitSeconds $MaxWaitSeconds
+
+                if ($result -eq $false) {
+                    Disable-DrainMode -rg $resourceGroup -hostPool $hostPool -vmName $vmName -sessionHostName $sessionHostName
+                    continue
+                }
+
+                $ext = Get-AzVMExtension -ResourceGroupName $resourceGroup -VMName $vmName -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*Hibernate*" }
+
+                if (-not $ext) {
+                    Write-Output "❌ No Hibernate extension found on $vmName"
+                    Disable-DrainMode -rg $resourceGroup -hostPool $hostPool -vmName $vmName -sessionHostName $sessionHostName
+                    continue
+                }
+
+                Write-Output $ext.ProvisioningState
+
+                $ext = $ext | Select-Object -First 1
+
+                Write-Output "✔ Found: $($ext.Name) extension on $vmName"
+
+                $provisioningState = $ext.ProvisioningState
+                Write-Output "Extension provisioning state: $provisioningState"
+
+                if ($provisioningState -ne "Succeeded") {
+                    Write-Output "Extension provisioning failed with state: $provisioningState - manual check needed 🫠" 
+                    Disable-DrainMode -rg $resourceGroup -hostPool $hostPool -vmName $vmName -sessionHostName $sessionHostName
+                    continue
+                }
+
+                Update-AzTag -ResourceId $vm.Id `
+                    -Tag @{ HibernationEnabled = "true" } `
+                    -Operation Merge | Out-Null
+
+
+                Write-Output "SUCCESS: $vmName fully configured 🎉🎉"
+                $succeedCount++
+
+            }
+            else {
+                Write-Output "VM in unexpected state: $powerState 🫨"
+                $falseCount++
+            }
+        }
+        else {
+            Write-Output "Active session exists on $sessionHostName - skipping 💕😎"
+            $falseCount++
+        }
+    }
+
+        Write-Output "Process completed. Success: $succeedCount, Failed/skipped: $falseCount"
+} 
+catch {
+    $falseCount++
+    Write-Error "Error processing session hosts: $($_.Exception.Message) ❌"
+}
