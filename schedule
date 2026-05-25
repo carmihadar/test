@@ -1,0 +1,146 @@
+# =========================
+# CONFIG
+# =========================
+$TenantId       = "78820852-55fa-450b-908d-45c0d911e76b"
+$ApplicationId  = "03acb776-8e3c-476a-96db-6817eadc126d"
+$SubscriptionId = "69d34344-d7b7-4dc2-aefa-fda3c77fb570"
+
+
+$automationAccount = "det-runbooks"
+$resourceGroup     = "DevEnv-Rg"
+$runbookName       = "enable-hibernation-on-AVDS"
+
+$hostPools = @(
+    "PAVD-ANM-hp","PAVD-DevAZP-hp","PAVD-DevIAF-hp","PAVD-DevMRM-hp",
+    "PAVD-DevMRP-hp","PAVD-DevSHR-hp","PAVD-DevTST-hp","PAVD-DevYSD-hp",
+    "PAVD-DevZRY-hp","PAVD-DT-hp","PAVD-MRM-hp","PAVD-ProdAZP-hp",
+    "PAVD-ProdIAF-hp","PAVD-ProdMRP-hp","PAVD-ProdSHR-hp","PAVD-ProdTST-hp",
+    "PAVD-ProdZRY-hp","PAVD-SHR-hp","PAVD-DevDTS-hp","PAVD-ProdDSI-hp"
+)
+
+# =========================
+# AUTH - AZ (Service Principal)
+# =========================
+$secureSecret = ConvertTo-SecureString $ClientSecret -AsPlainText -Force
+$azCredential = New-Object PSCredential($ApplicationId, $secureSecret)
+
+Connect-AzAccount -ServicePrincipal `
+    -Tenant $TenantId `
+    -Credential $azCredential | Out-Null
+
+Set-AzContext -SubscriptionId $SubscriptionId | Out-Null
+
+
+# =========================
+# AUTH - MICROSOFT GRAPH
+# =========================
+Connect-MgGraph `
+    -TenantId $TenantId `
+    -ClientSecretCredential $azCredential `
+    -NoWelcome
+
+
+# =========================
+# TIME (SAFE)
+# =========================
+$base = (Get-Date).Date.AddDays(1)
+
+$time22 = $base.AddHours(22)
+
+$time02 = $base.AddHours(2)
+if ($time02 -lt (Get-Date)) {
+    $time02 = $time02.AddDays(1)
+}
+
+
+# =========================
+# HELPERS
+# =========================
+function Ensure-Schedule {
+    param (
+        [string]$Name,
+        [datetime]$Time
+    )
+
+    $existing = Get-AzAutomationSchedule `
+        -ResourceGroupName $resourceGroup `
+        -AutomationAccountName $automationAccount `
+        -Name $Name `
+        -ErrorAction SilentlyContinue
+
+    if (-not $existing) {
+        Write-Host "Creating schedule: $Name"
+
+        New-AzAutomationSchedule `
+            -AutomationAccountName $automationAccount `
+            -ResourceGroupName $resourceGroup `
+            -Name $Name `
+            -StartTime $Time `
+            -DayInterval 1 `
+            -ExpiryTime (Get-Date).AddDays(7) `
+            -TimeZone "Israel Standard Time" `
+            -ErrorAction Stop | Out-Null
+    }
+    else {
+        Write-Host "Schedule already exists: $Name"
+    }
+}
+
+function Ensure-Link {
+    param (
+        [string]$ScheduleName,
+        [string]$HostPool
+    )
+
+    $existing = Get-AzAutomationScheduledRunbook `
+        -ResourceGroupName $resourceGroup `
+        -AutomationAccountName $automationAccount `
+        -RunbookName $runbookName `
+        -ScheduleName $ScheduleName `
+        -ErrorAction SilentlyContinue
+
+    if (-not $existing) {
+        Write-Host "Linking $ScheduleName -> $HostPool"
+        $hp = Get-AzWvdHostPool | Where-Object { $_.Name -eq $HostPool }
+        $rg = $hp.Id.Split('/')[4]
+        Register-AzAutomationScheduledRunbook `
+            -AutomationAccountName $automationAccount `
+            -ResourceGroupName $resourceGroup `
+            -RunbookName $runbookName `
+            -ScheduleName $ScheduleName `
+            -Parameters @{
+                hostPool       = $HostPool
+                resourceGroup  = $rg
+            } `
+            -ErrorAction Stop | Out-Null
+    }
+    else {
+        Write-Host "Already linked: $ScheduleName"
+    }
+}
+
+
+# =========================
+# MAIN LOOP
+# =========================
+foreach ($hostPool in $hostPools) {
+
+    try {
+
+        # 10 PM
+        $schedule22 = "$hostPool-10PM"
+        Ensure-Schedule -Name $schedule22 -Time $time22
+        Ensure-Link -ScheduleName $schedule22 -HostPool $hostPool
+
+        # 02 AM
+        $schedule02 = "$hostPool-2AM"
+        Ensure-Schedule -Name $schedule02 -Time $time02
+        Ensure-Link -ScheduleName $schedule02 -HostPool $hostPool
+
+        Write-Host "OK: $hostPool"
+
+    }
+    catch {
+        Write-Host "FAILED: $hostPool -> $($_.Exception.Message)"
+    }
+}
