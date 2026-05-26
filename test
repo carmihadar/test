@@ -71,8 +71,8 @@ try {
             return $false
         }
 
-        if ($vm.HardwareProfile.VmSize -eq "Standard_B4ms") {
-            Write-Output "Skipping $vmName - VM size is Standard_B4ms ⏭️"
+        if ($vm.HardwareProfile.VmSize -like "Standard_B*") {
+            Write-Output "Skipping $vmName - VM size is $($vm.HardwareProfile.VmSize) ⏭️"
             return $false
         }
 
