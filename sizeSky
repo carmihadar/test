@@ -1,0 +1,273 @@
+לא תומכים:
+Standard_D4s_v3
+Standard_F8s_v2
+Standard_B4ms
+Standard_D4s_v3
+Standard_D8ds_v4
+Standard_B2s
+
+תומכים:
+Standard_B2s_v2
+Standard_D2s_v3
+
+
+=========================
+HostPool: AVD-Test-Env-Hostpool
+=========================
+
+VM Size          Count
+-------          -----
+Standard_D4as_v5     7
+
+
+
+=========================
+HostPool: hostpool-9900-Dev
+=========================
+
+VM Size           Count
+-------           -----
+Standard_D4as_v5    101
+Standard_D4s_v5      40
+Standard_D2as_v5     39
+Standard_D8as_v5     16
+Standard_D8s_v5      13
+Standard_D16as_v5    13
+Standard_D2ds_v5      6
+Standard_D4s_v3       5
+Standard_D16s_v5      5
+Standard_D8ads_v5     1
+Standard_D16ls_v5     1
+Standard_F8s_v2       1
+
+
+
+=========================
+HostPool: hostpool-9900-DMZ
+=========================
+
+VM Size          Count
+-------          -----
+Standard_D2as_v5    11
+Standard_D4s_v5      3
+Standard_D8s_v5      2
+Standard_D2ls_v5     2
+Standard_D4as_v5     2
+
+
+
+=========================
+HostPool: hostpool-9900-Plat
+=========================
+
+VM Size           Count
+-------           -----
+Standard_D4as_v5    121
+Standard_D4s_v5      42
+Standard_D2as_v5     16
+Standard_D2ds_v5      7
+Standard_D4ds_v5      3
+Standard_D8as_v5      2
+Standard_D8s_v5       1
+Standard_D4ads_v5     1
+
+
+
+=========================
+HostPool: hostpool-9900-Trust
+=========================
+
+VM Size          Count
+-------          -----
+Standard_D4as_v5    14
+Standard_D4s_v5     14
+Standard_D2as_v5     4
+Standard_D8s_v5      1
+
+
+
+=========================
+HostPool: hostpool-9900-Untrst
+=========================
+
+VM Size          Count
+-------          -----
+Standard_D2as_v5    14
+Standard_D4as_v5    13
+Standard_D4s_v5     11
+Standard_E4s_v5      1
+Standard_D8s_v5      1
+
+
+
+=========================
+HostPool: hostpool-dev
+=========================
+
+VM Size           Count
+-------           -----
+Standard_D4as_v5    233
+Standard_D2as_v5     73
+Standard_D4s_v5      53
+Standard_D8as_v5     20
+Standard_D4s_v3      19
+Standard_B4ms        10
+Standard_D16as_v5     7
+Standard_D2ls_v5      7
+Standard_D4ds_v5      7
+Standard_D8s_v5       3
+Standard_D8ds_v5      3
+Standard_D2s_v3       2
+Standard_D4ls_v5      2
+Standard_D8lds_v5     1
+Standard_B2s_v2       1
+Standard_E4ads_v5     1
+Standard_E2ds_v5      1
+Standard_B8ms         1
+Standard_D4ads_v5     1
+Standard_D8ds_v4      1
+
+
+
+=========================
+HostPool: hostpool-OpenSky-Trusted
+=========================
+
+VM Size          Count
+-------          -----
+Standard_D4as_v5    80
+Standard_D2as_v5    14
+Standard_B2s         3
+Standard_D8as_v5     1
+
+
+
+=========================
+HostPool: hostpool-OpenSky-Untrusted
+=========================
+
+VM Size          Count
+-------          -----
+Standard_D4as_v5    67
+Standard_D2as_v5     8
+Standard_D8as_v5     3
+Standard_B2s         3
+
+
+
+=========================
+HostPool: hostpool-plat
+=========================
+
+VM Size           Count
+-------           -----
+Standard_D4as_v5    110
+Standard_D2as_v5     58
+Standard_D4s_v5      35
+Standard_B2ms        13
+Standard_D4ds_v5      8
+Standard_B4ms         6
+Standard_D2ds_v5      5
+Standard_D8as_v5      4
+Standard_D8s_v5       2
+Standard_D8ds_v5      1
+Standard_B12ms        1
+Standard_D16s_v5      1
+Standard_B8ms         1
+Standard_D8ads_v5     1
+
+
+
+=========================
+HostPool: O19-T-AVD-hp
+=========================
+
+VM Size          Count
+-------          -----
+Standard_D4as_v5    34
+
+
+
+=========================
+HostPool: O19-UT-AVD-hp
+=========================
+
+VM Size          Count
+-------          -----
+Standard_D4as_v5    29
+
+
+
+=========================
+NON V5 MACHINES
+=========================
+
+HostPool                   VMName         VMSize          
+--------                   ------         ------          
+hostpool-9900-Dev          9900-Dev-127   Standard_F8s_v2 
+hostpool-9900-Dev          9900-Dev-65    Standard_D4s_v3 
+hostpool-9900-Dev          9900-Dev-66    Standard_D4s_v3 
+hostpool-9900-Dev          9900-Dev-67    Standard_D4s_v3 
+hostpool-9900-Dev          9900-Dev-68    Standard_D4s_v3 
+hostpool-9900-Dev          9900-Dev-69    Standard_D4s_v3 
+hostpool-dev               pavd-dev-10    Standard_B4ms   
+hostpool-dev               pavd-dev-11    Standard_B4ms   
+hostpool-dev               pavd-dev-13    Standard_B4ms   
+hostpool-dev               pavd-dev-14    Standard_B4ms   
+hostpool-dev               pavd-dev-19    Standard_B8ms   
+hostpool-dev               pavd-dev-21    Standard_B4ms   
+hostpool-dev               pavd-dev-22    Standard_B4ms   
+hostpool-dev               pavd-dev-226   Standard_B2s_v2 
+hostpool-dev               pavd-dev-230   Standard_D2s_v3 
+hostpool-dev               pavd-dev-232   Standard_D4s_v3 
+hostpool-dev               pavd-dev-236   Standard_D2s_v3 
+hostpool-dev               pavd-dev-252   Standard_D4s_v3 
+hostpool-dev               pavd-dev-254   Standard_D4s_v3 
+hostpool-dev               pavd-dev-255   Standard_D4s_v3 
+hostpool-dev               pavd-dev-257   Standard_D4s_v3 
+hostpool-dev               pavd-dev-258   Standard_D4s_v3 
+hostpool-dev               pavd-dev-259   Standard_D4s_v3 
+hostpool-dev               pavd-dev-260   Standard_D4s_v3 
+hostpool-dev               pavd-dev-261   Standard_D4s_v3 
+hostpool-dev               pavd-dev-262   Standard_D4s_v3 
+hostpool-dev               pavd-dev-263   Standard_D4s_v3 
+hostpool-dev               pavd-dev-264   Standard_D4s_v3 
+hostpool-dev               pavd-dev-265   Standard_D4s_v3 
+hostpool-dev               pavd-dev-266   Standard_D4s_v3 
+hostpool-dev               pavd-dev-267   Standard_D4s_v3 
+hostpool-dev               pavd-dev-268   Standard_D4s_v3 
+hostpool-dev               pavd-dev-269   Standard_D4s_v3 
+hostpool-dev               pavd-dev-270   Standard_D4s_v3 
+hostpool-dev               pavd-dev-271   Standard_D4s_v3 
+hostpool-dev               pavd-dev-3     Standard_B4ms   
+hostpool-dev               pavd-dev-30    Standard_B4ms   
+hostpool-dev               pavd-dev-301   Standard_D8ds_v4
+hostpool-dev               pavd-dev-6     Standard_B4ms   
+hostpool-dev               pavd-dev-7     Standard_B4ms   
+hostpool-OpenSky-Trusted   opsky-trs-15   Standard_B2s    
+hostpool-OpenSky-Trusted   opsky-trs-16   Standard_B2s    
+hostpool-OpenSky-Trusted   opsky-trs-17   Standard_B2s    
+hostpool-OpenSky-Untrusted OpSky-Untrs-15 Standard_B2s    
+hostpool-OpenSky-Untrusted OpSky-Untrs-16 Standard_B2s    
+hostpool-OpenSky-Untrusted OpSky-Untrs-17 Standard_B2s    
+hostpool-plat              pavd-plat-186  Standard_B4ms   
+hostpool-plat              pavd-plat-187  Standard_B4ms   
+hostpool-plat              pavd-plat-189  Standard_B4ms   
+hostpool-plat              pavd-plat-45   Standard_B4ms   
+hostpool-plat              pavd-plat-47   Standard_B2ms   
+hostpool-plat              pavd-plat-51   Standard_B2ms   
+hostpool-plat              pavd-plat-52   Standard_B2ms   
+hostpool-plat              pavd-plat-53   Standard_B8ms   
+hostpool-plat              pavd-plat-58   Standard_B2ms   
+hostpool-plat              pavd-plat-59   Standard_B2ms   
+hostpool-plat              pavd-plat-62   Standard_B2ms   
+hostpool-plat              pavd-plat-65   Standard_B12ms  
+hostpool-plat              pavd-plat-71   Standard_B4ms   
+hostpool-plat              pavd-plat-75   Standard_B2ms   
+hostpool-plat              pavd-plat-76   Standard_B2ms   
+hostpool-plat              pavd-plat-80   Standard_B2ms   
+hostpool-plat              pavd-plat-83   Standard_B2ms   
+hostpool-plat              pavd-plat-90   Standard_B2ms   
+hostpool-plat              pavd-plat-92   Standard_B2ms   
+hostpool-plat              pavd-plat-94   Standard_B2ms   
+hostpool-plat              pavd-plat-95   Standard_B4ms   
