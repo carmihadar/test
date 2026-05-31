@@ -1,0 +1,120 @@
+$TenantId = "78820852-55fa-450b-908d-45c0d911e76b"
+$AppId = "03acb776-8e3c-476a-96db-6817eadc126d"
+$SubscriptionId = "69d34344-d7b7-4dc2-aefa-fda3c77fb570"
+
+$azCredential = New-Object System.Management.Automation.PSCredential(
+    $AppId,
+    (ConvertTo-SecureString $ClientSecret -AsPlainText -Force)
+)
+
+Connect-AzAccount `
+    -ServicePrincipal `
+    -Tenant $TenantId `
+    -Credential $azCredential | Out-Null
+
+Set-AzContext -SubscriptionId $SubscriptionId | Out-Null
+
+Write-Output "Logged in to Azure successfully"
+
+# =========================
+# Host Pools
+# =========================
+
+$hostPools = @(
+    "PAVD-ANM-hp",
+    "PAVD-DevAZP-hp",
+    "PAVD-DevIAF-hp",
+    "PAVD-DevMRM-hp",
+    "PAVD-DevMRP-hp",
+    "PAVD-DevSHR-hp",
+    "PAVD-DevTST-hp",
+    "PAVD-DevYSD-hp",
+    "PAVD-DevZRY-hp",
+    "PAVD-DT-hp",
+    "PAVD-MRM-hp",
+    "PAVD-ProdAZP-hp",
+    "PAVD-ProdIAF-hp",
+    "PAVD-ProdMRP-hp",
+    "PAVD-ProdSHR-hp",
+    "PAVD-ProdTST-hp",
+    "PAVD-ProdZRY-hp",
+    "PAVD-SHR-hp",
+    "PAVD-DevDTS-hp",
+    "PAVD-ProdDSI-hp"
+)
+
+# =========================
+# Get all VMs once
+# =========================
+
+Write-Output "Loading all VMs..."
+
+$allVMs = Get-AzVM
+
+$vmSizeCount = @{}
+
+foreach ($hostPool in $hostPools) {
+
+    Write-Output "Processing HostPool: $hostPool"
+
+    $hostPoolObj = Get-AzWvdHostPool | Where-Object {
+        $_.Name -eq $hostPool
+    }
+
+    if (-not $hostPoolObj) {
+        Write-Warning "HostPool not found: $hostPool"
+        continue
+    }
+
+    $resourceGroup = $hostPoolObj.Id.Split('/')[4]
+
+    $sessionHosts = Get-AzWvdSessionHost `
+        -ResourceGroupName $resourceGroup `
+        -HostPoolName $hostPool `
+        -ErrorAction SilentlyContinue
+
+    foreach ($sessionHost in $sessionHosts) {
+
+        $vmName = $sessionHost.Name.Split('/')[-1].Split('.')[0]
+
+        $vm = $allVMs | Where-Object {
+            $_.Name -eq $vmName -and
+            $_.ResourceGroupName -eq $resourceGroup
+        }
+
+        if (-not $vm) {
+            Write-Warning "VM not found: $vmName"
+            continue
+        }
+
+        $vmSize = $vm.HardwareProfile.VmSize
+
+        if ($vmSizeCount.ContainsKey($vmSize)) {
+            $vmSizeCount[$vmSize]++
+        }
+        else {
+            $vmSizeCount[$vmSize] = 1
+        }
+    }
+}
+
+# =========================
+# Output
+# =========================
+
+$result = $vmSizeCount.GetEnumerator() |
+    Sort-Object Value -Descending |
+    Select-Object @{
+        Name = 'VM Size'
+        Expression = { $_.Key }
+    }, @{
+        Name = 'Count'
+        Expression = { $_.Value }
+    }
+
+$result | Format-Table -AutoSize
+
+$totalVMs = ($vmSizeCount.Values | Measure-Object -Sum).Sum
+
+Write-Output ""
+Write-Output "Total VMs: $totalVMs"
