@@ -56,6 +56,19 @@ $ScriptBlock = {
         'OK'
     }
 }
+
+$excludedSizes = @(
+    "Standard_D4s_v3",
+    "Standard_F8s_v2",
+    "Standard_B4ms",
+    "Standard_D8ds_v4",
+    "Standard_B2s",
+    "Standard_B12ms",
+    "Standard_B2ms",
+    "Standard_B8ms",
+    "Standard D4as v4"
+)
+
 try {
     $succeedCount = 0
     $failedCount = 0
@@ -65,46 +78,52 @@ try {
 
     $allSessionHosts = Get-AzWvdSessionHost -ResourceGroupName $resourceGroup -HostPoolName $hostPool
 
-    $sessionHosts = $allSessionHosts | Where-Object {
+$sessionHosts = $allSessionHosts | Where-Object {
 
-        $sessionHostName = $_.Name.Split("/")[-1]
-        $vmName = $sessionHostName.Split(".")[0]
+    $sessionHostName = $_.Name.Split("/")[-1]
+    $vmName = $sessionHostName.Split(".")[0]
 
-        $vm = Get-AzVM -ResourceGroupName $resourceGroup -Name $vmName
+    $vm = Get-AzVM -ResourceGroupName $resourceGroup -Name $vmName
 
-        if (-not $vm) {
-            $failedCount++
-            return $false
-        }
+    if (-not $vm) {
+        $failedCount++
+        return $false
+    }
 
-        if ($vm.Tags["HibernationEnabled"] -eq "true") {
-            $skippedCountAlreadyEnabled++
-            return $false
-        }
+    if ($vm.Tags["HibernationEnabled"] -eq "true") {
+        $skippedCountAlreadyEnabled++
+        return $false
+    }
 
-        if ($vm.HardwareProfile.VmSize -like "Standard_B*") {
-            $skippedCountSize++
-            return $false
-        }
+    if ($excludedSizes -contains $vm.HardwareProfile.VmSize) {
+        $skippedCountSize++
+        return $false
+    }
 
-        if ($vmName -like "PAVD-P-SHR-0" -or $vmName -like "PAVD-DT-vm-1" -or $vmName -like "PAVD-DT-vm-3") {
-            $skippedCount++
-            return $false
-        }
+    if ($vmName -like "PAVD-P-SHR-0" -or
+        $vmName -like "PAVD-DT-vm-1" -or
+        $vmName -like "PAVD-DT-vm-3" -or
+        $vmName -like "PAVD-MRM-vm-1" -or
+        $vmName -like "PAVD-SHR-vm-161" -or
+        $vmName -like "PAVD-P-SHR-8") {
 
-        $sessions = Get-AzWvdUserSession `
-            -ResourceGroupName $resourceGroup `
-            -HostPoolName $hostPool `
-            -SessionHostName $sessionHostName `
-            -ErrorAction SilentlyContinue
+        $skippedCount++
+        return $false
+    }
 
-        $activeSessions = @($sessions) | Where-Object {
-            $_.SessionState -eq "Active"
-        }
+    $sessions = Get-AzWvdUserSession `
+        -ResourceGroupName $resourceGroup `
+        -HostPoolName $hostPool `
+        -SessionHostName $sessionHostName `
+        -ErrorAction SilentlyContinue
 
-        return ($activeSessions.Count -eq 0)
+    $activeSessions = @($sessions) | Where-Object {
+        $_.SessionState -eq "Active"
+    }
 
-    } | Select-Object -First 18
+    return ($activeSessions.Count -eq 0)
+
+} | Select-Object -First 18
 
     if (-not $sessionHosts) {
         Write-Output "No session hosts require hibernation configuration. Exiting. 🎉"
