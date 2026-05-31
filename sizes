@@ -1,43 +1,9 @@
-$azCredential = New-Object System.Management.Automation.PSCredential(
-    $AppId,
-    (ConvertTo-SecureString $ClientSecret -AsPlainText -Force)
-)
-
-Connect-AzAccount -ServicePrincipal -Tenant $TenantId -Credential $azCredential | Out-Null
-Set-AzContext -SubscriptionId $SubscriptionId | Out-Null
-
-Write-Output "Logged in to Azure successfully"
-
-# =========================
-# Host Pools
-# =========================
-$hostPools = @(
-    "PAVD-ANM-hp",
-    "PAVD-DevAZP-hp",
-    "PAVD-DevIAF-hp",
-    "PAVD-DevMRM-hp",
-    "PAVD-DevMRP-hp",
-    "PAVD-DevSHR-hp",
-    "PAVD-DevTST-hp",
-    "PAVD-DevYSD-hp",
-    "PAVD-DevZRY-hp",
-    "PAVD-DT-hp",
-    "PAVD-MRM-hp",
-    "PAVD-ProdAZP-hp",
-    "PAVD-ProdIAF-hp",
-    "PAVD-ProdMRP-hp",
-    "PAVD-ProdSHR-hp",
-    "PAVD-ProdTST-hp",
-    "PAVD-ProdZRY-hp",
-    "PAVD-SHR-hp",
-    "PAVD-DevDTS-hp",
-    "PAVD-ProdDSI-hp"
-)
-
 Write-Output "Loading VMs..."
 $allVMs = Get-AzVM
 
-# VM lookup: RG|VMName -> size
+# =========================
+# Lookup: VM -> Size
+# =========================
 $vmLookup = @{}
 foreach ($vm in $allVMs) {
     $key = "$($vm.ResourceGroupName)|$($vm.Name)"
@@ -45,10 +11,12 @@ foreach ($vm in $allVMs) {
 }
 
 # =========================
-# RESULT: HostPool -> Size -> Count
+# Results
 # =========================
 $results = @{}
+$nonV5VMs = @()
 
+# HostPools cache
 $hostPoolsObj = Get-AzWvdHostPool
 $hostPoolsMap = @{}
 foreach ($hp in $hostPoolsObj) {
@@ -84,7 +52,20 @@ foreach ($hostPool in $hostPools) {
 
         $vmSize = $vmLookup[$key]
 
-        # init nested dictionary
+        # =========================
+        # NON V5 COLLECTION
+        # =========================
+        if ($vmSize -notmatch 'v5') {
+            $nonV5VMs += [PSCustomObject]@{
+                HostPool = $hostPool
+                VMName   = $vmName
+                VMSize   = $vmSize
+            }
+        }
+
+        # =========================
+        # SIZE COUNT PER HOSTPOOL
+        # =========================
         if (-not $results.ContainsKey($hostPool)) {
             $results[$hostPool] = @{}
         }
@@ -99,7 +80,7 @@ foreach ($hostPool in $hostPools) {
 }
 
 # =========================
-# OUTPUT
+# OUTPUT: SIZE PER HOSTPOOL
 # =========================
 foreach ($hp in $results.Keys | Sort-Object) {
 
@@ -114,3 +95,14 @@ foreach ($hp in $results.Keys | Sort-Object) {
             @{Name="Count"; Expression={$_.Value}} |
         Format-Table -AutoSize
 }
+
+# =========================
+# OUTPUT: NON V5 MACHINES
+# =========================
+Write-Output "`n========================="
+Write-Output "NON V5 MACHINES"
+Write-Output "========================="
+
+$nonV5VMs |
+    Sort-Object HostPool, VMName |
+    Format-Table -AutoSize
