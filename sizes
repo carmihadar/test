@@ -1,17 +1,9 @@
-$TenantId = "78820852-55fa-450b-908d-45c0d911e76b"
-$AppId = "03acb776-8e3c-476a-96db-6817eadc126d"
-$SubscriptionId = "69d34344-d7b7-4dc2-aefa-fda3c77fb570"
-
 $azCredential = New-Object System.Management.Automation.PSCredential(
     $AppId,
     (ConvertTo-SecureString $ClientSecret -AsPlainText -Force)
 )
 
-Connect-AzAccount `
-    -ServicePrincipal `
-    -Tenant $TenantId `
-    -Credential $azCredential | Out-Null
-
+Connect-AzAccount -ServicePrincipal -Tenant $TenantId -Credential $azCredential | Out-Null
 Set-AzContext -SubscriptionId $SubscriptionId | Out-Null
 
 Write-Output "Logged in to Azure successfully"
@@ -19,7 +11,6 @@ Write-Output "Logged in to Azure successfully"
 # =========================
 # Host Pools
 # =========================
-
 $hostPools = @(
     "PAVD-ANM-hp",
     "PAVD-DevAZP-hp",
@@ -43,29 +34,37 @@ $hostPools = @(
     "PAVD-ProdDSI-hp"
 )
 
-# =========================
-# Get all VMs once
-# =========================
-
-Write-Output "Loading all VMs..."
-
+Write-Output "Loading VMs..."
 $allVMs = Get-AzVM
 
-$vmSizeCount = @{}
+# VM lookup: RG|VMName -> size
+$vmLookup = @{}
+foreach ($vm in $allVMs) {
+    $key = "$($vm.ResourceGroupName)|$($vm.Name)"
+    $vmLookup[$key] = $vm.HardwareProfile.VmSize
+}
+
+# =========================
+# RESULT: HostPool -> Size -> Count
+# =========================
+$results = @{}
+
+$hostPoolsObj = Get-AzWvdHostPool
+$hostPoolsMap = @{}
+foreach ($hp in $hostPoolsObj) {
+    $hostPoolsMap[$hp.Name] = $hp
+}
 
 foreach ($hostPool in $hostPools) {
 
     Write-Output "Processing HostPool: $hostPool"
 
-    $hostPoolObj = Get-AzWvdHostPool | Where-Object {
-        $_.Name -eq $hostPool
-    }
-
-    if (-not $hostPoolObj) {
+    if (-not $hostPoolsMap.ContainsKey($hostPool)) {
         Write-Warning "HostPool not found: $hostPool"
         continue
     }
 
+    $hostPoolObj = $hostPoolsMap[$hostPool]
     $resourceGroup = $hostPoolObj.Id.Split('/')[4]
 
     $sessionHosts = Get-AzWvdSessionHost `
@@ -76,45 +75,42 @@ foreach ($hostPool in $hostPools) {
     foreach ($sessionHost in $sessionHosts) {
 
         $vmName = $sessionHost.Name.Split('/')[-1].Split('.')[0]
+        $key = "$resourceGroup|$vmName"
 
-        $vm = $allVMs | Where-Object {
-            $_.Name -eq $vmName -and
-            $_.ResourceGroupName -eq $resourceGroup
-        }
-
-        if (-not $vm) {
+        if (-not $vmLookup.ContainsKey($key)) {
             Write-Warning "VM not found: $vmName"
             continue
         }
 
-        $vmSize = $vm.HardwareProfile.VmSize
+        $vmSize = $vmLookup[$key]
 
-        if ($vmSizeCount.ContainsKey($vmSize)) {
-            $vmSizeCount[$vmSize]++
+        # init nested dictionary
+        if (-not $results.ContainsKey($hostPool)) {
+            $results[$hostPool] = @{}
+        }
+
+        if ($results[$hostPool].ContainsKey($vmSize)) {
+            $results[$hostPool][$vmSize]++
         }
         else {
-            $vmSizeCount[$vmSize] = 1
+            $results[$hostPool][$vmSize] = 1
         }
     }
 }
 
 # =========================
-# Output
+# OUTPUT
 # =========================
+foreach ($hp in $results.Keys | Sort-Object) {
 
-$result = $vmSizeCount.GetEnumerator() |
-    Sort-Object Value -Descending |
-    Select-Object @{
-        Name = 'VM Size'
-        Expression = { $_.Key }
-    }, @{
-        Name = 'Count'
-        Expression = { $_.Value }
-    }
+    Write-Output "`n========================="
+    Write-Output "HostPool: $hp"
+    Write-Output "========================="
 
-$result | Format-Table -AutoSize
-
-$totalVMs = ($vmSizeCount.Values | Measure-Object -Sum).Sum
-
-Write-Output ""
-Write-Output "Total VMs: $totalVMs"
+    $results[$hp].GetEnumerator() |
+        Sort-Object Value -Descending |
+        Select-Object `
+            @{Name="VM Size"; Expression={$_.Key}},
+            @{Name="Count"; Expression={$_.Value}} |
+        Format-Table -AutoSize
+}
