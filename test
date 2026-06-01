@@ -1,10 +1,3 @@
-param(
-    [string]$resourceGroup = @("PAVD-AVD-DevTST"),
-    [string]$hostPool = @("PAVD-DevTST-hp"),
-    [int]$MaxWaitSeconds = 900      # 15 minutes max wait
-)
-Connect-AzAccount -Identity  | Out-Null
-
 function Wait-ForVm {
     param(
         [string]$rg,
@@ -66,7 +59,8 @@ $excludedSizes = @(
     "Standard_B12ms",
     "Standard_B2ms",
     "Standard_B8ms",
-    "Standard D4as v4"
+    "Standard_D4as_v4", 
+    "Standard_D48as_v5"
 )
 
 try {
