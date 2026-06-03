@@ -1,0 +1,184 @@
+function Wait-ForVm {
+  param(
+    [string]$rg,
+    [string]$vmName,
+    [string]$desiredState,
+    [int]$maxWaitSeconds = 900
+  )
+
+  $elapsed = 0
+
+  while ($elapsed -lt $maxWaitSeconds) {
+
+    Start-Sleep -Seconds 15
+    $elapsed += 15
+
+    $vm = Get-AzVM -ResourceGroupName $rg -Name $vmName -Status
+    $powerState = ($vm.Statuses | Where-Object Code -like "PowerState/*").Code
+
+    Write-Host "Current state: $powerState (elapsed: ${elapsed}s)"
+
+    if ($powerState -eq $desiredState) {
+      Write-Host "VM reached desired state" -ForegroundColor Cyan
+      return $true
+    }
+  }
+
+  Write-Warning "Timeout waiting for VM $vmName"
+  return $false
+}
+
+$hostPools = @(
+# "PAVD-ANM-hp"
+# ,
+#  "PAVD-DevAZP-hp"
+# , 
+# "PAVD-DevIAF-hp"
+# , 
+# "PAVD-DevMRM-hp"
+# ,
+# "PAVD-DevMRP-hp"
+# , 
+# "PAVD-DevSHR-hp"
+# , 
+# "PAVD-DevTST-hp"
+# , 
+"PAVD-DevYSD-hp"
+# ,
+# "PAVD-DevZRY-hp"
+# , 
+# "PAVD-DT-hp"
+# , 
+# "PAVD-MRM-hp"
+# , 
+# "PAVD-ProdAZP-hp"
+# ,
+# "PAVD-ProdIAF-hp"
+# , 
+# "PAVD-ProdMRP-hp"
+# , 
+# "PAVD-ProdSHR-hp"
+# , 
+# "PAVD-ProdTST-hp"
+# ,
+# "PAVD-ProdZRY-hp"
+# , 
+# "PAVD-SHR-hp"
+# , 
+# "PAVD-DevDTS-hp"
+# , 
+# "PAVD-ProdDSI-hp"
+)
+
+$Summary = @()
+
+foreach ($HostPoolName in $HostPools) {
+
+  Write-Host "`nProcessing Host Pool: $HostPoolName" -ForegroundColor Cyan
+
+  $hostPool = Get-AzWvdHostPool | Where-Object { $_.Name -eq $HostPoolName }
+
+  $rg = ($hostPool.Id -split "/")[4]
+
+  $ReadyCount = 0
+  $NotReadyCount = 0
+  $MissingExtensionCount = 0
+  $TotalVMs = 0
+
+  $sessionHosts = Get-AzWvdSessionHost -ResourceGroupName $rg -HostPoolName $HostPoolName
+
+  foreach ($SessionHost in $SessionHosts) {
+
+    $VMName = (($SessionHost.Name -split "/")[-1] -split "\.")[0]
+    $TotalVMs++
+
+    Write-Host "`nChecking $VMName"
+
+    try {
+
+      $VM = Get-AzVM -ResourceGroupName $rg -Name $VMName -Status
+
+      $PowerState = ($VM.Statuses | Where-Object Code -like "PowerState/*").Code
+
+      if ($PowerState -ne "PowerState/running") {
+        Write-Host "Starting VM..." -ForegroundColor Yellow
+        Start-AzVM -ResourceGroupName $rg -Name $VMName | Out-Null
+        Wait-ForVm -rg $rg -vmName $VMName -desiredState "PowerState/running" | Out-Null
+        Start-Sleep -Seconds 10
+        $VM = Get-AzVM -ResourceGroupName $rg -Name $VMName -Status
+      }
+
+      $maxRetries = 10
+      $retry = 0
+
+      do {
+
+        $ext = $VM.Extensions | Where-Object { $_.Name -like "*Hibernate*" }
+
+        if (-not $ext) {
+          $MissingExtensionCount++
+          Write-Host "No Hibernate extension found on $VMName" -ForegroundColor DarkMagenta
+          break
+        }
+
+        $extMassage = $ext.Statuses.Message
+
+        $provisioningState = $ext.Statuses.DisplayStatus
+        Write-Host "Extension state: $provisioningState"
+
+        if ($provisioningState -like "*succeeded*") {
+          $ReadyCount++
+          Write-Host "Extension OK" -ForegroundColor Green
+          break
+        }
+        elseif ($provisioningState -like "*updating*") {
+          Write-Host "Extension still updating..." -ForegroundColor Yellow
+          Start-Sleep -Seconds 15
+          $retry++
+          continue
+        }
+        elseif ($provisioningState -like "*failed*") {
+            $NotReadyCount++
+            Write-Host "Extension FAILED on $VMName" -ForegroundColor Red
+
+            if ($extMassage) {
+              Write-Host "Error: $($extMassage)" -ForegroundColor Red
+            }
+
+            break
+        }
+        else {
+          $NotReadyCount++
+          Write-Host "Unknown state: $provisioningState" -ForegroundColor Red
+          break
+        }
+
+      } while ($retry -lt $maxRetries)
+
+      if ($retry -ge $maxRetries) {
+        Write-Host "Extension stuck in Updating state for too long on $VMName" -ForegroundColor Yellow
+        $NotReadyCount++
+      }
+
+    }
+  catch {
+    $NotReadyCount++
+    Write-Warning "$VMName failed: $($_.Exception.Message)"
+  }
+}
+
+$HostPoolReady = ($NotReadyCount -eq 0 -and $MissingExtensionCount -eq 0)
+
+Write-Host "`nHost Pool $HostPoolName status: $HostPoolReady"
+
+$Summary += [PSCustomObject]@{
+  HostPool = $HostPoolName
+  TotalVMs = $TotalVMs
+  ReadyVMs = $ReadyCount
+  NotReadyVMs = $NotReadyCount
+  MissingExtensionVMs = $MissingExtensionCount
+  HostPoolReady = $HostPoolReady
+}
+}
+
+$Summary | Format-Table -AutoSize
