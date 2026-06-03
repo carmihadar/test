@@ -85,7 +85,22 @@ foreach ($HostPoolName in $HostPools) {
   $MissingExtensionCount = 0
   $TotalVMs = 0
 
-  $sessionHosts = Get-AzWvdSessionHost -ResourceGroupName $rg -HostPoolName $HostPoolName
+  $AllSessionHosts = Get-AzWvdSessionHost -ResourceGroupName $rg -HostPoolName $HostPoolName
+  $sessionHosts = $allSessionHosts | Where-Object {
+
+    $sessionHostName = $_.Name.Split("/")[-1]
+    $vmName = $sessionHostName.Split(".")[0]
+
+    if (
+    $vmName -like "PAVD-DT-vm-1" -or
+    $vmName -like "PAVD-SHR-vm-161" -or
+    $vmName -like "PAVD-DT-vm-4" -or
+    ) {
+      return $false
+    }
+
+    return $true
+  }
 
   foreach ($SessionHost in $SessionHosts) {
 
