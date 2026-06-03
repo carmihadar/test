@@ -1,0 +1,131 @@
+$subscriptionId = "31076e3c-fc5e-4f0b-be52-0eb744e89036"
+
+Connect-AzAccount -Identity | Out-Null
+
+Set-AzContext -SubscriptionId $subscriptionId | Out-Null
+
+$pagefileVMsNames = @(
+# "9900-Dev-126",
+# "pavd-dev-164",
+# "9900-Plat-55",
+# "9900-Plat-56",
+# "9900-Plat-57",
+# "9900-Plat-58",
+# "9900-Plat-59",
+# "9900-Plat-60",
+# "9900-Plat-62",
+# "9900-Plat-63",
+# "pavd-dev-16",
+# "pavd-plat-232",
+# "pavd-plat-233",
+# "pavd-plat-234",
+# "pavd-plat-235",
+# "pavd-plat-236",
+# "pavd-plat-237",
+# "pavd-plat-238",
+# "pavd-plat-239",
+"pavd-plat-240"
+# ,
+# "pavd-plat-241",
+# "pavd-plat-190",
+# "pavd-plat-192",
+# "pavd-plat-193",
+# "pavd-plat-194",
+# "pavd-plat-195",
+)
+
+$diskSizeUpVMsNames = @(
+"9900-Dev-147"
+)
+
+foreach ($vmName in $pagefileVMsNames) {
+
+  $vm = Get-AzVM -Name $vmName
+  $rgName = $vm.ResourceGroupName
+
+  $script = @'
+      Write-Host "Disabling Automatic Page File Management..."
+
+      $cs = Get-CimInstance Win32_ComputerSystem
+      Set-CimInstance -InputObject $cs -Property @{AutomaticManagedPagefile = $false}
+
+      Write-Host "Removing existing Page File settings..."
+      Get-CimInstance Win32_PageFileSetting | Remove-CimInstance
+
+      Write-Host "Setting Page File to C:\pagefile.sys ..."
+
+      Set-ItemProperty `
+          -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" `
+          -Name "PagingFiles" `
+          -Value "C:\pagefile.sys 8192 8192"
+
+      Write-Host "Done. Reboot required."
+'@
+
+  Invoke-AzVMRunCommand `
+    -ResourceGroupName $rgName `
+    -VMName $vmName `
+    -CommandId 'RunPowerShellScript' `
+    -ScriptString $script
+
+  Write-Host "Restarting VM..."
+  Restart-AzVM -ResourceGroupName $rgName -Name $vmName
+
+  if ($pageFile.ReturnValue -eq 0) {
+    Write-Host "Page File created successfully on C:"
+  }
+else {
+  Write-Host "Failed to create Page File. ReturnValue: $($pageFile.ReturnValue)"
+}
+
+Write-Host "Restart required for changes to take effect."
+}
+
+foreach ($vmName in $diskSizeUpVMsNames) {
+
+  $vm = Get-AzVM -Name $vmName
+  $rgName = $vm.ResourceGroupName
+
+  $newSizeGB = 1024
+
+  Stop-AzVM -ResourceGroupName $rgName -Name $vmName -Force
+
+  $vm = Get-AzVM -ResourceGroupName $rgName -Name $vmName
+  $diskId = $vm.StorageProfile.OsDisk.ManagedDisk.Id
+  $diskName = ($diskId -split "/")[-1]
+
+  $disk = Get-AzDisk -ResourceGroupName $rgName -DiskName $diskName
+  $disk.DiskSizeGB = $newSizeGB
+  Update-AzDisk -ResourceGroupName $rgName -Disk $disk -DiskName $diskName
+
+  Start-AzVM -ResourceGroupName $rgName -Name $vmName
+
+  $script = @'
+  $drive = $env:SystemDrive.TrimEnd(":")
+
+  Write-Host "Expanding drive $drive..."
+
+  $partition = Get-Partition -DriveLetter $drive
+  $disk = Get-Disk -Number $partition.DiskNumber
+
+  $size = Get-PartitionSupportedSize `
+      -DiskNumber $disk.Number `
+      -PartitionNumber $partition.PartitionNumber
+
+  Resize-Partition `
+      -DiskNumber $disk.Number `
+      -PartitionNumber $partition.PartitionNumber `
+      -Size $size.SizeMax
+
+  Write-Host "Done expanding C:"
+
+  Get-Volume -DriveLetter $drive
+'@
+
+  Invoke-AzVMRunCommand `
+    -ResourceGroupName $rgName `
+    -VMName $vmName `
+    -CommandId 'RunPowerShellScript' `
+    -ScriptString $script
+
+}
