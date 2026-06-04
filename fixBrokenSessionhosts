@@ -1,109 +1,62 @@
-Connect-AzAccount -Identity | Out-Null
+# foreach ($vmName in $pagefileVMsNames) {
 
-$pagefileVMsNames = @(
-"PAVD-ANM-vm-13",
-"PAVD-ANM-vm-14",
-"PAVD-ANM-vm-15",
-"PAVD-ANM-vm-16",
-"PAVD-ANM-vm-5",
-"PAVD-ANM-vm-51",
-"PAVD-ANM-vm-52",
-"PAVD-ANM-vm-55",
-"PAVD-ANM-vm-56",
-"PAVD-ANM-vm-57",
-"PAVD-ANM-vm-58",
-"PAVD-ANM-vm-59",
-"PAVD-ANM-vm-60",
-"PAVD-ANM-vm-8",
-"PAVD-ANM-vm-9",
-"PAVD-DT-vm-0",
-"PAVD-DT-vm-2",
-"PAVD-DT-vm-32",
-"PAVD-DT-vm-33",
-"PAVD-DT-vm-34",
-"PAVD-DT-vm-35"
-"PAVD-DT-vm-36",
-"PAVD-DT-vm-37",
-"PAVD-DT-vm-38",
-"PAVD-DT-vm-39",
-"PAVD-DT-vm-5",
-"PAVD-DT-vm-6",
-"PAVD-DT-vm-7",
-"PAVD-DT-vm-8"
-)
+#   $vm = Get-AzVM -Name $vmName
+#   $rgName = $vm.ResourceGroupName
+#   Write-Output "Processing VM: $vmName in RG: $rgName"
 
-$diskSizeUpVMsNames = @(
-"avd-DevMRM-31",
-"avd-DevMRM-49",
-"avd-DevYSD-40",
-"avd-DevYSD-20",
-"avd-DevYSD-21",
-"avd-DevYSD-22",
-"PAVD-P-SHR-32",
-"avd-DevYSD-39"
-)
+#   $hasActiveSession = $false
 
-$hostpools = Get-AzWvdHostPool
+#   foreach ($hp in $hostpools) {
 
-foreach ($vmName in $pagefileVMsNames) {
+#     $sessions = Get-AzWvdUserSession -HostPoolName $hp.Name -ResourceGroupName $hp.ResourceGroupName
 
-  $vm = Get-AzVM -Name $vmName
-  $rgName = $vm.ResourceGroupName
-  Write-Output "Processing VM: $vmName in RG: $rgName"
+#     $active = $sessions | Where-Object {
+#       $_.SessionHostName -like "*$vmName*" -and $_.State -eq "Active"
+#     }
 
-  $hasActiveSession = $false
+#     if ($active) {
+#       $hasActiveSession = $true
+#       Write-Output "Skipping $vmName - Active session found"
+#       break
+#     }
+#   }
 
-  foreach ($hp in $hostpools) {
+#   if ($hasActiveSession) {
+#     continue
+#   }
 
-    $sessions = Get-AzWvdUserSession -HostPoolName $hp.Name -ResourceGroupName $hp.ResourceGroupName
+#   $script = @'
+#     Write-Output "Disabling Automatic Page File Management..."
 
-    $active = $sessions | Where-Object {
-      $_.SessionHostName -like "*$vmName*" -and $_.State -eq "Active"
-    }
+#     $cs = Get-CimInstance Win32_ComputerSystem
+#     Set-CimInstance -InputObject $cs -Property @{AutomaticManagedPagefile = $false}
 
-    if ($active) {
-      $hasActiveSession = $true
-      Write-Output "Skipping $vmName - Active session found"
-      break
-    }
-  }
+#     Write-Output "Removing existing Page File settings..."
+#     Get-CimInstance Win32_PageFileSetting | Remove-CimInstance
 
-  if ($hasActiveSession) {
-    continue
-  }
+#     Write-Output "Setting Page File to C:\pagefile.sys ..."
 
-  $script = @'
-    Write-Output "Disabling Automatic Page File Management..."
+#     Set-ItemProperty `
+#         -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" `
+#         -Name "PagingFiles" `
+#         -Value "C:\pagefile.sys 8192 8192"
 
-    $cs = Get-CimInstance Win32_ComputerSystem
-    Set-CimInstance -InputObject $cs -Property @{AutomaticManagedPagefile = $false}
+#     Write-Output "Done. Reboot required."
+# '@
 
-    Write-Output "Removing existing Page File settings..."
-    Get-CimInstance Win32_PageFileSetting | Remove-CimInstance
+#   $pageFile = Invoke-AzVMRunCommand `
+#     -ResourceGroupName $rgName `
+#     -VMName $vmName `
+#     -CommandId 'RunPowerShellScript' `
+#     -ScriptString $script
 
-    Write-Output "Setting Page File to C:\pagefile.sys ..."
+#   Write-Output "Restarting VM..."
+#   Restart-AzVM -ResourceGroupName $rgName -Name $vmName | Out-Null
 
-    Set-ItemProperty `
-        -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" `
-        -Name "PagingFiles" `
-        -Value "C:\pagefile.sys 8192 8192"
-
-    Write-Output "Done. Reboot required."
-'@
-
-  $pageFile = Invoke-AzVMRunCommand `
-    -ResourceGroupName $rgName `
-    -VMName $vmName `
-    -CommandId 'RunPowerShellScript' `
-    -ScriptString $script
-
-  Write-Output "Restarting VM..."
-  Restart-AzVM -ResourceGroupName $rgName -Name $vmName
-
-  if ($pageFile.Value[0].Message) {
-    Write-Output "RunCommand output: $($pageFile.Value[0].Message)"
-  }
-}
+#   if ($pageFile.Value[0].Message) {
+#     Write-Output "RunCommand output: $($pageFile.Value[0].Message)"
+#   }
+# }
 
 foreach ($vmName in $diskSizeUpVMsNames) {
   $hasActiveSession = $false
@@ -146,12 +99,12 @@ foreach ($vmName in $diskSizeUpVMsNames) {
   Write-Output "Current disk size: $currentSizeGB GB"
   Write-Output "New disk size: $newSizeGB GB"
 
-  Stop-AzVM -ResourceGroupName $rgName -Name $vmName -Force
+  Stop-AzVM -ResourceGroupName $rgName -Name $vmName -Force | Out-Null
 
   $disk.DiskSizeGB = $newSizeGB
-  Update-AzDisk -ResourceGroupName $rgName -Disk $disk -DiskName $diskName
+  Update-AzDisk -ResourceGroupName $rgName -Disk $disk -DiskName $diskName | Out-Null
 
-  Start-AzVM -ResourceGroupName $rgName -Name $vmName
+  Start-AzVM -ResourceGroupName $rgName -Name $vmName | Out-Null
 
   $script = @'
         $drive = $env:SystemDrive.TrimEnd(":")
@@ -180,6 +133,6 @@ foreach ($vmName in $diskSizeUpVMsNames) {
     -VMName $vmName `
     -CommandId 'RunPowerShellScript' `
     -ScriptString $script
-  Restart-AzVM -ResourceGroupName $rgName -Name $vmName
+  Restart-AzVM -ResourceGroupName $rgName -Name $vmName | Out-Null
 
 }
