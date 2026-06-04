@@ -1,0 +1,119 @@
+Connect-AzAccount -Identity | Out-Null
+
+$hostPools = Get-AzWvdHostPool
+
+$SizeMapping = @{
+  "Standard_B2ms"  = "Standard_D4ds_v5"
+  "Standard_B4ms" = "Standard_D4ds_v5"
+  "Standard_B8ms" = "Standard_D8ds_v5"
+  "Standard_D4as_v4" = "Standard_D4ds_v5"
+}
+
+
+foreach ($HostPoolName in $HostPools) {
+
+    Write-Output "`nProcessing Host Pool: $HostPoolName"
+
+    $hostPool = Get-AzWvdHostPool | Where-Object Name -eq $HostPoolName
+    if (-not $hostPool) { continue }
+
+    $ResourceGroupName = $hostPool.Id.Split("/")[4]
+
+    if (-not $hostPool) {
+        Write-Warning "Host Pool not found: $HostPoolName"
+        continue
+    }
+
+    $AllSessions = Get-AzWvdUserSession `
+        -HostPoolName $HostPoolName `
+        -ResourceGroupName $ResourceGroupName
+
+    $SessionHosts = Get-AzWvdSessionHost `
+        -HostPoolName $HostPoolName `
+        -ResourceGroupName $ResourceGroupName
+
+    foreach ($SessionHost in $SessionHosts) {
+
+        $SessionHostName = ($SessionHost.Name.Split("/")[-1]).Split(".")[0]
+
+        $Sessions = $AllSessions | Where-Object {
+            $_.Name -like "$SessionHostName*"
+        }
+
+        if ($Sessions.Count -gt 0) {
+            Write-Output "Active sessions found ($($Sessions.Count)) - skipping"
+            continue
+        }
+
+        try {
+            $VM = Get-AzVM -ResourceGroupName $ResourceGroupName -Name $SessionHostName
+
+            if (-not $VM) {
+                Write-Warning "VM not found: $SessionHostName"
+                continue
+            }
+
+            $CurrentSize = $VM.HardwareProfile.VmSize
+
+            if (-not $SizeMapping.ContainsKey($CurrentSize)) {
+                continue
+            }
+
+            $NewSize = $SizeMapping[$CurrentSize]
+
+            if ($CurrentSize -eq $NewSize) {
+                Write-Output "Already desired size - skipping"
+                continue
+            }
+
+            Write-Output "Checking $SessionHostName"
+            Write-Output "Current Size: $CurrentSize"
+
+            Write-Output "Stopping VM..."
+            Stop-AzVM -ResourceGroupName $ResourceGroupName -Name $SessionHostName -Force | Out-Null
+
+            $VM.HardwareProfile.VmSize = $NewSize
+            Update-AzVM -ResourceGroupName $ResourceGroupName -VM $VM | Out-Null
+
+            Write-Output "Starting VM..."
+            Start-AzVM -ResourceGroupName $ResourceGroupName -Name $SessionHostName | Out-Null
+
+            Write-Output "$SessionHostName resized: $CurrentSize -> $NewSize"
+
+            $script = @'
+Write-Output "Disabling Automatic Page File Management..."
+
+$cs = Get-CimInstance Win32_ComputerSystem
+Set-CimInstance -InputObject $cs -Property @{AutomaticManagedPagefile = $false}
+
+Write-Output "Removing existing Page File settings..."
+Get-CimInstance Win32_PageFileSetting | Remove-CimInstance
+
+Write-Output "Setting Page File to C:\pagefile.sys ..."
+
+Set-ItemProperty `
+    -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" `
+    -Name "PagingFiles" `
+    -Value "C:\pagefile.sys 8192 8192"
+
+Write-Output "Done. Reboot required."
+'@
+
+            $pageFile = Invoke-AzVMRunCommand `
+                -ResourceGroupName $ResourceGroupName `
+                -VMName $SessionHostName `
+                -CommandId 'RunPowerShellScript' `
+                -ScriptString $script
+
+            Write-Output "Restarting VM..."
+            Restart-AzVM -ResourceGroupName $ResourceGroupName -Name $SessionHostName | Out-Null
+
+            if ($pageFile.Value -and $pageFile.Value.Count -gt 0) {
+                Write-Output "RunCommand output: $($pageFile.Value[0].Message)"
+            }
+        }
+        catch {
+            Write-Error "Failed on $SessionHostName : $_"
+        }
+    }
+}
