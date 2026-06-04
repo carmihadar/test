@@ -1,0 +1,185 @@
+Connect-AzAccount -Identity | Out-Null
+
+$pagefileVMsNames = @(
+"PAVD-ANM-vm-13",
+"PAVD-ANM-vm-14",
+"PAVD-ANM-vm-15",
+"PAVD-ANM-vm-16",
+"PAVD-ANM-vm-5",
+"PAVD-ANM-vm-51",
+"PAVD-ANM-vm-52",
+"PAVD-ANM-vm-55",
+"PAVD-ANM-vm-56",
+"PAVD-ANM-vm-57",
+"PAVD-ANM-vm-58",
+"PAVD-ANM-vm-59",
+"PAVD-ANM-vm-60",
+"PAVD-ANM-vm-8",
+"PAVD-ANM-vm-9",
+"PAVD-DT-vm-0",
+"PAVD-DT-vm-2",
+"PAVD-DT-vm-32",
+"PAVD-DT-vm-33",
+"PAVD-DT-vm-34",
+"PAVD-DT-vm-35"
+"PAVD-DT-vm-36",
+"PAVD-DT-vm-37",
+"PAVD-DT-vm-38",
+"PAVD-DT-vm-39",
+"PAVD-DT-vm-5",
+"PAVD-DT-vm-6",
+"PAVD-DT-vm-7",
+"PAVD-DT-vm-8"
+)
+
+$diskSizeUpVMsNames = @(
+"avd-DevMRM-31",
+"avd-DevMRM-49",
+"avd-DevYSD-40",
+"avd-DevYSD-20",
+"avd-DevYSD-21",
+"avd-DevYSD-22",
+"PAVD-P-SHR-32",
+"avd-DevYSD-39"
+)
+
+$hostpools = Get-AzWvdHostPool
+
+foreach ($vmName in $pagefileVMsNames) {
+
+  $vm = Get-AzVM -Name $vmName
+  $rgName = $vm.ResourceGroupName
+  Write-Output "Processing VM: $vmName in RG: $rgName"
+
+  $hasActiveSession = $false
+
+  foreach ($hp in $hostpools) {
+
+    $sessions = Get-AzWvdUserSession -HostPoolName $hp.Name -ResourceGroupName $hp.ResourceGroupName
+
+    $active = $sessions | Where-Object {
+      $_.SessionHostName -like "*$vmName*" -and $_.State -eq "Active"
+    }
+
+    if ($active) {
+      $hasActiveSession = $true
+      Write-Output "Skipping $vmName - Active session found"
+      break
+    }
+  }
+
+  if ($hasActiveSession) {
+    continue
+  }
+
+  $script = @'
+    Write-Output "Disabling Automatic Page File Management..."
+
+    $cs = Get-CimInstance Win32_ComputerSystem
+    Set-CimInstance -InputObject $cs -Property @{AutomaticManagedPagefile = $false}
+
+    Write-Output "Removing existing Page File settings..."
+    Get-CimInstance Win32_PageFileSetting | Remove-CimInstance
+
+    Write-Output "Setting Page File to C:\pagefile.sys ..."
+
+    Set-ItemProperty `
+        -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" `
+        -Name "PagingFiles" `
+        -Value "C:\pagefile.sys 8192 8192"
+
+    Write-Output "Done. Reboot required."
+'@
+
+  $pageFile = Invoke-AzVMRunCommand `
+    -ResourceGroupName $rgName `
+    -VMName $vmName `
+    -CommandId 'RunPowerShellScript' `
+    -ScriptString $script
+
+  Write-Output "Restarting VM..."
+  Restart-AzVM -ResourceGroupName $rgName -Name $vmName
+
+  if ($pageFile.Value[0].Message) {
+    Write-Output "RunCommand output: $($pageFile.Value[0].Message)"
+  }
+}
+
+foreach ($vmName in $diskSizeUpVMsNames) {
+  $hasActiveSession = $false
+
+  foreach ($hp in $hostpools) {
+
+    $sessions = Get-AzWvdUserSession -HostPoolName $hp.Name -ResourceGroupName $hp.ResourceGroupName
+
+    $active = $sessions | Where-Object {
+      $_.SessionHostName -like "*$vmName*" -and $_.State -eq "Active"
+    }
+
+    if ($active) {
+      $hasActiveSession = $true
+      Write-Output "Skipping $vmName - Active session found"
+      break
+    }
+  }
+
+  if ($hasActiveSession) {
+    continue
+  }
+
+  $vm = Get-AzVM -Name $vmName
+  $rgName = $vm.ResourceGroupName
+
+  $vm = Get-AzVM -ResourceGroupName $rgName -Name $vmName
+  $diskId = $vm.StorageProfile.OsDisk.ManagedDisk.Id
+  $diskName = ($diskId -split "/")[-1]
+
+  $disk = Get-AzDisk -ResourceGroupName $rgName -DiskName $diskName
+
+  $currentSizeGB = $disk.DiskSizeGB
+  $newSizeGB = $currentSizeGB * 2
+
+  if ($newSizeGB -gt 1024) {
+    $newSizeGB = 1024
+  }
+  Write-Output "vm name: $vmName"
+  Write-Output "Current disk size: $currentSizeGB GB"
+  Write-Output "New disk size: $newSizeGB GB"
+
+  Stop-AzVM -ResourceGroupName $rgName -Name $vmName -Force
+
+  $disk.DiskSizeGB = $newSizeGB
+  Update-AzDisk -ResourceGroupName $rgName -Disk $disk -DiskName $diskName
+
+  Start-AzVM -ResourceGroupName $rgName -Name $vmName
+
+  $script = @'
+        $drive = $env:SystemDrive.TrimEnd(":")
+
+        Write-Output "Expanding drive $drive..."
+
+        $partition = Get-Partition -DriveLetter $drive
+        $disk = Get-Disk -Number $partition.DiskNumber
+
+        $size = Get-PartitionSupportedSize `
+            -DiskNumber $disk.Number `
+            -PartitionNumber $partition.PartitionNumber
+
+        Resize-Partition `
+            -DiskNumber $disk.Number `
+            -PartitionNumber $partition.PartitionNumber `
+            -Size $size.SizeMax
+
+        Write-Output "Done expanding C:"
+
+        Get-Volume -DriveLetter $drive
+'@
+
+  Invoke-AzVMRunCommand `
+    -ResourceGroupName $rgName `
+    -VMName $vmName `
+    -CommandId 'RunPowerShellScript' `
+    -ScriptString $script
+  Restart-AzVM -ResourceGroupName $rgName -Name $vmName
+
+}
