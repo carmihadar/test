@@ -1,15 +1,3 @@
-Connect-AzAccount -Identity | Out-Null
-
-$hostPools = Get-AzWvdHostPool
-
-$SizeMapping = @{
-  "Standard_B2ms"  = "Standard_D4ds_v5"
-  "Standard_B4ms" = "Standard_D4ds_v5"
-  "Standard_B8ms" = "Standard_D8ds_v5"
-  "Standard_D4as_v4" = "Standard_D4ds_v5"
-}
-
-
 foreach ($HostPoolName in $HostPools) {
 
     Write-Output "`nProcessing Host Pool: $HostPoolName"
