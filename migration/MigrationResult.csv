@@ -1,0 +1,2 @@
+﻿"OldVMId","NewVMId","OldName","NewName","Assignee","SrcHP","DstHP","IsSuccessfull"
+"/subscriptions/31076e3c-fc5e-4f0b-be52-0eb744e89036/resourceGroups/AVD-Test-Env-RG/providers/Microsoft.Compute/virtualMachines/avd-tst-dev-32","/subscriptions/31076e3c-fc5e-4f0b-be52-0eb744e89036/resourceGroups/AVD-Test-Env-RG/providers/Microsoft.Compute/virtualMachines/avd-tst-dev-35","avd-tst-dev-32","avd-tst-dev-35","NSaig09@dev.sky320.com","AVD-Test-Env-Hostpool","AVD-Test-Env-Hostpool","True"
