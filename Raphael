@@ -247,3 +247,17 @@
               PreReqResult : WillNotProvision
 
 
+
+For the device object that shows:
+- Join Type = Microsoft Entra Joined
+- MDM = Microsoft Intune
+there is a corresponding device in the same name, that is attached to the secont instance' the one that have Join Type = none.
+
+
+
+- Are the affected VMs deployed through a standard image and automation process?
+we create our avd session hosts (vms) through the hostpool, standard image.
+- Have there been any recent changes to the AVD provisioning workflow, enrollment process, Intune enrollment, or deployment automation?
+no, there have not been any changes
+- Are duplicate device records continuing to appear for newly created hosts?
+i dont know.
