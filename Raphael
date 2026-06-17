@@ -1,6 +1,249 @@
 - Device Name: 9900-Untrust-51
-- Object ID:
-- Device ID
-- Join Type
-- MDM value
-- Creation date (if available)
+- Object ID: 1db741cb-9f38-446d-8d75-86198c442617
+- Device ID: 9b640a4c-a7e4-4cd4-9464-06d005d20f9b
+- Join Type: none
+- MDM value: Microsoft Intune
+- Creation date (if available): Thursday, March 5, 2026 5:15:53 PM
+- registered to entra: N/A
+
+
+- Device Name: 9900-Untrust-51
+- Object ID: 63703b10-d4ce-49dc-a416-0fbe8437f34e
+- Device ID: 1d438ff3-d6d8-4ad1-aacd-05901f02a586
+- Join Type: Microsoft Entra joined
+- MDM value: Microsoft Intune
+- Creation date (if available): Thursday, March 5, 2026 5:15:53 PM
+- registered to entra: 3/5/2026, 7:35:06 PM
+
+- Device Name: 9900-Untrust-49
+- Object ID: 507e49b4-bbe1-4fe6-bbfd-2a0ebcf11f29
+- Device ID: 5ff5393b-65d0-40d2-940a-02e6d94673f4
+- Join Type: none
+- MDM value: Microsoft Intune
+- Creation date (if available): Thursday, March 5, 2026 5:15:53 PM
+- registered to entra: N/A
+
+- Device Name: 9900-Untrust-49
+- Object ID: e2f355d6-5ba5-479a-b074-5d43ab30e836
+- Device ID: bbb57c86-f309-4fc0-aab2-d0e7f9c5977a
+- Join Type: Microsoft Entra joined
+- MDM value: none
+- Creation date (if available): Thursday, March 5, 2026 5:15:53 PM
+- registered to entra: 3/5/2026, 7:35:07 PM
+
+
+9900-Untrst-49 = entra joined and intune in different instances.
++----------------------------------------------------------------------+
+| Device State                                                         |
++----------------------------------------------------------------------+
+
+             AzureAdJoined : YES
+          EnterpriseJoined : NO
+              DomainJoined : NO
+           Virtual Desktop : NOT SET
+               Device Name : 9900-Untrst-49
+
++----------------------------------------------------------------------+
+| Device Details                                                       |
++----------------------------------------------------------------------+
+
+                  DeviceId : bbb57c86-f309-4fc0-aab2-d0e7f9c5977a
+                Thumbprint : 91C24E9EC729BFAA58B30B9B74648EB4A4FD4CB5
+ DeviceCertificateValidity : [ 2026-03-05 17:05:07.000 UTC -- 2036-03-05 17:35:07.000 UTC ]
+            KeyContainerId : caf5e212-640b-4c14-8b4e-8b48d16d6d5a
+               KeyProvider : Microsoft Platform Crypto Provider
+              TpmProtected : YES
+          DeviceAuthStatus : SUCCESS
++----------------------------------------------------------------------+
+| Tenant Details                                                       |
++----------------------------------------------------------------------+
+
+                TenantName : 
+                  TenantId : a986ce9f-e1ca-45ab-942e-e1ce27106918
+               AuthCodeUrl : https://login.microsoftonline.com/a986ce9f-e1ca-45ab-942e-e1ce27106918/oauth2/authorize
+            AccessTokenUrl : https://login.microsoftonline.com/a986ce9f-e1ca-45ab-942e-e1ce27106918/oauth2/token
+                    MdmUrl : 
+                 MdmTouUrl : 
+          MdmComplianceUrl : 
+               SettingsUrl : 
+            JoinSrvVersion : 2.0
+                JoinSrvUrl : https://enterpriseregistration.windows.net/EnrollmentServer/device/
+                 JoinSrvId : urn:ms-drs:enterpriseregistration.windows.net
+             KeySrvVersion : 1.0
+                 KeySrvUrl : https://enterpriseregistration.windows.net/EnrollmentServer/key/
+                  KeySrvId : urn:ms-drs:enterpriseregistration.windows.net
+        WebAuthNSrvVersion : 1.0
+            WebAuthNSrvUrl : https://enterpriseregistration.windows.net/webauthn/a986ce9f-e1ca-45ab-942e-e1ce27106918/
+             WebAuthNSrvId : urn:ms-drs:enterpriseregistration.windows.net
+    DeviceManagementSrvVer : 1.0
+    DeviceManagementSrvUrl : https://enterpriseregistration.windows.net/manage/a986ce9f-e1ca-45ab-942e-e1ce27106918/
+     DeviceManagementSrvId : urn:ms-drs:enterpriseregistration.windows.net
+
++----------------------------------------------------------------------+
+| User State                                                           |
++----------------------------------------------------------------------+
+
+                    NgcSet : NO
+           WorkplaceJoined : NO
+             WamDefaultSet : ERROR (0x80070520)
+
++----------------------------------------------------------------------+
+| SSO State                                                            |
++----------------------------------------------------------------------+
+
+                AzureAdPrt : NO
+       AzureAdPrtAuthority : 
+             EnterprisePrt : NO
+    EnterprisePrtAuthority : 
+
++----------------------------------------------------------------------+
+| Diagnostic Data                                                      |
++----------------------------------------------------------------------+
+
+        AadRecoveryEnabled : NO
+    Executing Account Name : WORKGROUP\9900-Untrst-49$
+               KeySignTest : PASSED
+
+        DisplayNameUpdated : Managed by MDM
+          OsVersionUpdated : Managed by MDM
+           HostNameUpdated : YES
+
+      Last HostName Update : NONE
+
++----------------------------------------------------------------------+
+| IE Proxy Config for Current User                                     |
++----------------------------------------------------------------------+
+
+      Auto Detect Settings : YES
+    Auto-Configuration URL : 
+         Proxy Server List : 
+         Proxy Bypass List : 
+
++----------------------------------------------------------------------+
+| WinHttp Default Proxy Config                                         |
++----------------------------------------------------------------------+
+
+               Access Type : DIRECT
+
++----------------------------------------------------------------------+
+| Ngc Prerequisite Check                                               |
++----------------------------------------------------------------------+
+
+            IsDeviceJoined : YES
+             IsUserAzureAD : NO
+             PolicyEnabled : NO
+          PostLogonEnabled : YES
+            DeviceEligible : YES
+        SessionIsNotRemote : YES
+            CertEnrollment : none
+              PreReqResult : WillNotProvision
+
+
+
+9900-Untrst-51 = 2 intune instances
++----------------------------------------------------------------------+
+| Device State                                                         |
++----------------------------------------------------------------------+
+
+             AzureAdJoined : YES
+          EnterpriseJoined : NO
+              DomainJoined : NO
+           Virtual Desktop : NOT SET
+               Device Name : 9900-Untrst-51
+
++----------------------------------------------------------------------+
+| Device Details                                                       |
++----------------------------------------------------------------------+
+
+                  DeviceId : 1d438ff3-d6d8-4ad1-aacd-05901f02a586
+                Thumbprint : 601B619378D9743B21C63AF40163B8DED5F3CAA4
+ DeviceCertificateValidity : [ 2026-03-05 17:05:06.000 UTC -- 2036-03-05 17:35:06.000 UTC ]
+            KeyContainerId : aae777bf-2051-41ee-9d23-b1dbf29de109
+               KeyProvider : Microsoft Platform Crypto Provider
+              TpmProtected : YES
+          DeviceAuthStatus : SUCCESS
++----------------------------------------------------------------------+
+| Tenant Details                                                       |
++----------------------------------------------------------------------+
+
+                TenantName : safeparadise
+                  TenantId : a986ce9f-e1ca-45ab-942e-e1ce27106918
+               AuthCodeUrl : https://login.microsoftonline.com/a986ce9f-e1ca-45ab-942e-e1ce27106918/oauth2/authorize
+            AccessTokenUrl : https://login.microsoftonline.com/a986ce9f-e1ca-45ab-942e-e1ce27106918/oauth2/token
+                    MdmUrl : 
+                 MdmTouUrl : 
+          MdmComplianceUrl : 
+               SettingsUrl : 
+            JoinSrvVersion : 2.0
+                JoinSrvUrl : https://enterpriseregistration.windows.net/EnrollmentServer/device/
+                 JoinSrvId : urn:ms-drs:enterpriseregistration.windows.net
+             KeySrvVersion : 1.0
+                 KeySrvUrl : https://enterpriseregistration.windows.net/EnrollmentServer/key/
+                  KeySrvId : urn:ms-drs:enterpriseregistration.windows.net
+        WebAuthNSrvVersion : 1.0
+            WebAuthNSrvUrl : https://enterpriseregistration.windows.net/webauthn/a986ce9f-e1ca-45ab-942e-e1ce27106918/
+             WebAuthNSrvId : urn:ms-drs:enterpriseregistration.windows.net
+    DeviceManagementSrvVer : 1.0
+    DeviceManagementSrvUrl : https://enterpriseregistration.windows.net/manage/a986ce9f-e1ca-45ab-942e-e1ce27106918/
+     DeviceManagementSrvId : urn:ms-drs:enterpriseregistration.windows.net
+
++----------------------------------------------------------------------+
+| User State                                                           |
++----------------------------------------------------------------------+
+
+                    NgcSet : NO
+           WorkplaceJoined : NO
+             WamDefaultSet : ERROR (0x80070520)
+
++----------------------------------------------------------------------+
+| SSO State                                                            |
++----------------------------------------------------------------------+
+
+                AzureAdPrt : NO
+       AzureAdPrtAuthority : 
+             EnterprisePrt : NO
+    EnterprisePrtAuthority : 
+
++----------------------------------------------------------------------+
+| Diagnostic Data                                                      |
++----------------------------------------------------------------------+
+
+        AadRecoveryEnabled : NO
+    Executing Account Name : WORKGROUP\9900-Untrst-51$
+               KeySignTest : PASSED
+
+        DisplayNameUpdated : Managed by MDM
+          OsVersionUpdated : Managed by MDM
+           HostNameUpdated : YES
+
+      Last HostName Update : NONE
+
++----------------------------------------------------------------------+
+| IE Proxy Config for Current User                                     |
++----------------------------------------------------------------------+
+
+      Auto Detect Settings : YES
+    Auto-Configuration URL : 
+         Proxy Server List : 
+         Proxy Bypass List : 
+
++----------------------------------------------------------------------+
+| WinHttp Default Proxy Config                                         |
++----------------------------------------------------------------------+
+
+               Access Type : DIRECT
+
++----------------------------------------------------------------------+
+| Ngc Prerequisite Check                                               |
++----------------------------------------------------------------------+
+
+            IsDeviceJoined : YES
+             IsUserAzureAD : NO
+             PolicyEnabled : NO
+          PostLogonEnabled : YES
+            DeviceEligible : YES
+        SessionIsNotRemote : YES
+            CertEnrollment : none
+              PreReqResult : WillNotProvision
+
+
