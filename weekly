@@ -1,0 +1,83 @@
+param(
+    [Parameter(Mandatory)] [string] $StorageAccountName,
+    [Parameter(Mandatory)] [string] $ContainerName
+)
+
+$SubscriptionId = "69d34344-d7b7-4dc2-aefa-fda3c77fb570"
+$ErrorActionPreference = 'Stop'
+
+# ---------- AUTH ----------
+Write-Output "Signing in with the Automation Managed Identity..."
+Disable-AzContextAutosave -Scope Process | Out-Null
+Connect-AzAccount -Identity | Out-Null
+
+Write-Output "Setting subscription context: $SubscriptionId"
+Set-AzContext -SubscriptionId $SubscriptionId | Out-Null
+
+# ---------- FIND LATEST BLOB ----------
+Write-Output "Looking up latest blob in $StorageAccountName/$ContainerName..."
+
+$ctx = New-AzStorageContext -StorageAccountName $StorageAccountName -UseConnectedAccount
+
+$latestBlob = Get-AzStorageBlob -Context $ctx -Container $ContainerName |
+              Sort-Object LastModified -Descending |
+              Select-Object -First 1
+
+if (-not $latestBlob) {
+    throw "No blobs found in container '$ContainerName'."
+}
+
+Write-Output ("Latest blob : {0}  (LastModified: {1})" -f $latestBlob.Name, $latestBlob.LastModified)
+
+# ---------- DOWNLOAD CSV ----------
+$tempPath = Join-Path $env:TEMP ("vmlist_{0}.csv" -f ([guid]::NewGuid()))
+
+Get-AzStorageBlobContent `
+    -Context   $ctx `
+    -Container $ContainerName `
+    -Blob      $latestBlob.Name `
+    -Destination $tempPath `
+    -Force | Out-Null
+
+$rows = Import-Csv -Path $tempPath
+Write-Output ("Loaded {0} rows from CSV." -f $rows.Count)
+
+# ---------- SHUTDOWN (fire-and-forget) ----------
+$sent    = 0
+$skipped = 0
+$failed  = 0
+
+foreach ($r in $rows) {
+
+    if ([string]::IsNullOrWhiteSpace($r.VMResourceId)) {
+        Write-Warning "Row has no VMResourceId - skipped"
+        $skipped++
+        continue
+    }
+
+    # /subscriptions/<sub>/resourcegroups/<rg>/providers/microsoft.compute/virtualmachines/<name>
+    $parts = $r.VMResourceId -split "/"
+    $rg    = $parts[4]
+    $name  = $parts[-1]
+
+    try {
+
+        Stop-AzVM -ResourceGroupName $rg -Name $name -Force -NoWait | Out-Null
+        Write-Output "Shutdown requested: $name  (rg=$rg)"
+        $sent++
+    }
+    catch {
+        Write-Warning "Failed to request shutdown for ${name} in ${rg}: $($_.Exception.Message)"
+        $failed++
+    }
+}
+
+# ---------- SUMMARY ----------
+Write-Output ""
+Write-Output "===== SUMMARY ====="
+Write-Output ("Requests sent : {0}" -f $sent)
+Write-Output ("Skipped rows  : {0}" -f $skipped)
+Write-Output ("Failed calls  : {0}" -f $failed)
+Write-Output "Note: -NoWait was used, so VMs may still be shutting down after the runbook exits."
+
+Remove-Item $tempPath -Force -ErrorAction SilentlyContinue
