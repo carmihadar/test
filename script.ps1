@@ -1,342 +1,103 @@
-<#
-.SYNOPSIS
-    Azure Automation Runbook.
-    For every host pool in the list, iterates its session hosts, reads the
-    AssignedUser's Entra custom security attribute UserData.CompanyName, and
-    applies that value as an Azure resource tag on the session host VM.
+# needs contributer on the session host VM resource groups
 
-.DESCRIPTION
-    Designed to run inside an Azure Automation Account using its Managed
-    Identity (system-assigned by default, or user-assigned when a client id
-    is supplied). No secrets are stored in the runbook.
+Param
+(
+    [Parameter (Mandatory= $true)]
+    [string] $workspaceName,
 
-.REQUIREMENTS
-    Automation Account Managed Identity needs:
-      * Microsoft Graph application permissions (admin consent), assigned to
-        the managed identity as app roles:
-          - CustomSecAttributeAssignment.Read.All
-          - User.Read.All
-      * Entra role assignment:
-          - Attribute Assignment Reader (on the "UserData" attribute set)
-      * Azure RBAC on the AVD resource groups / VMs:
-          - Reader on the host pools
-          - Tag Contributor (or Contributor) on the session host VMs
-
-    Automation Account modules required (import from the gallery):
-      * Az.Accounts, Az.Compute, Az.Resources, Az.DesktopVirtualization
-      * Microsoft.Graph.Authentication, Microsoft.Graph.Users
-#>
-
-# ------------------------------------------------------------------
-# PARAMETERS
-# ------------------------------------------------------------------
-param(
-    [Parameter(Mandatory)] [string]   $SubscriptionId,
-
-    # Leave empty to use the system-assigned managed identity.
-    # Provide the client (application) id to use a user-assigned identity.
-    [string]   $ManagedIdentityClientId = "",
-
-    [string]   $AttributeSet  = "UserData",
-    [string]   $AttributeName = "CompanyName",
-    [string]   $TagName       = "unit-number",
-
-    [string[]] $HostPools = @(
-        "O19-UT-AVD-hp",
-        "O19-T-AVD-hp",
-        "hostpool-OpenSky-Trusted",
-        "hostpool-OpenSky-Untrusted",
-        "hostpool-9900-Dev",
-        "hostpool-9900-DMZ",
-        "hostpool-9900-Plat",
-        "hostpool-9900-Trust",
-        "hostpool-9900-Untrst",
-        "hostpool-dev",
-        "hostpool-plat",
-        "MZP-DEV-AVD-hp"
-    )
+    [Parameter (Mandatory= $true)]
+    [string] $userName
 )
 
-$ErrorActionPreference = "Stop"
-Write-Output "SCRIPT STARTED"
+Connect-AzAccount -Identity | Out-Null
+Set-AzContext -SubscriptionId "69d34344-d7b7-4dc2-aefa-fda3c77fb570" | Out-Null
 
-# ------------------------------------------------------------------
-# FUNCTIONS
-# ------------------------------------------------------------------
+$upn = "xd.$userName@idf.il"
 
-<#
-.SYNOPSIS
-    Authenticates to Azure and Microsoft Graph using the Automation Account
-    Managed Identity.
-.DESCRIPTION
-    Signs in to Azure with the managed identity, sets the target subscription
-    context, and connects Microsoft Graph with the same identity. When a
-    client id is supplied a user-assigned identity is used; otherwise the
-    system-assigned identity is used.
-#>
-function Connect-Services {
-    param(
-        [Parameter(Mandatory)] [string] $SubscriptionId,
-        [string] $ManagedIdentityClientId = ""
-    )
+# Find the workspace by name across the subscription.
+$workspace = Get-AzWvdWorkspace | Where-Object { $_.Name -ieq $workspaceName }
 
-    if ([string]::IsNullOrWhiteSpace($ManagedIdentityClientId)) {
-        Connect-AzAccount -Identity | Out-Null
-        Connect-MgGraph   -Identity -NoWelcome
+if (-not $workspace) {
+    Write-Output "[ERROR] Workspace - $workspaceName not found 🚩"
+    Write-Error  "[ERROR] Workspace - $workspaceName not found 🚩"
+    throw
+}
+
+if (@($workspace).Count -gt 1) {
+    Write-Output "[ERROR] Multiple workspaces found with name - $workspaceName 🚩. Name must be unique."
+    Write-Error  "[ERROR] Multiple workspaces found with name - $workspaceName 🚩."
+    throw
+}
+
+# Resolve the hostpools behind the workspace through its application groups.
+$hostpoolIds = @()
+foreach ($appGroupId in $workspace.ApplicationGroupReference) {
+    $parts       = $appGroupId -split "/"
+    $appGroupRg  = $parts[4]
+    $appGroupName = $parts[-1]
+
+    $appGroup = Get-AzWvdApplicationGroup -Name $appGroupName -ResourceGroupName $appGroupRg
+    if ($appGroup.HostPoolArmPath) {
+        $hostpoolIds += $appGroup.HostPoolArmPath
     }
-    else {
-        Connect-AzAccount -Identity -AccountId $ManagedIdentityClientId | Out-Null
-        Connect-MgGraph   -Identity -ClientId  $ManagedIdentityClientId -NoWelcome
-    }
-
-    Set-AzContext -SubscriptionId $SubscriptionId | Out-Null
 }
 
-<#
-.SYNOPSIS
-    Resolves the resource group name of a host pool by looking it up in a
-    pre-loaded host pool catalog.
-#>
-function Get-HostPoolResourceGroup {
-    param(
-        [Parameter(Mandatory)] [string]   $HostPoolName,
-        [Parameter(Mandatory)] [object[]] $Catalog
-    )
+$hostpoolIds = $hostpoolIds | Select-Object -Unique
 
-    $hp = $Catalog | Where-Object { $_.Name -eq $HostPoolName } | Select-Object -First 1
-    if (-not $hp) { return $null }
-    return ($hp.Id -split "/")[4]
+if (-not $hostpoolIds) {
+    Write-Output "[ERROR] No hostpools linked to workspace - $workspaceName 🚩"
+    Write-Error  "[ERROR] No hostpools linked to workspace - $workspaceName 🚩"
+    throw
 }
 
-<#
-.SYNOPSIS
-    Extracts the underlying VM name from an AVD session host object.
-#>
-function Get-SessionHostVmName {
-    param([Parameter(Mandatory)] [object] $SessionHost)
+# Look through every hostpool's session hosts for the one assigned to the user.
+$userSessionHost = $null
+foreach ($hostpoolId in $hostpoolIds) {
+    $hpParts   = $hostpoolId -split "/"
+    $hpRgName  = $hpParts[4]
+    $hpName    = $hpParts[-1]
 
-    $short = ($SessionHost.Name -split "/")[-1]
-    return  ($short             -split "\.")[0]
-}
-
-<#
-.SYNOPSIS
-    Reads the UserData.CompanyName custom security attribute of an Entra user.
-#>
-function Get-UserCompanyName {
-    param(
-        [Parameter(Mandatory)] [string] $UserPrincipalNameOrId,
-        [Parameter(Mandatory)] [string] $AttributeSet,
-        [Parameter(Mandatory)] [string] $AttributeName
-    )
-
-    $user = Get-MgUser -UserId $UserPrincipalNameOrId `
-                       -Property "customSecurityAttributes" `
-                       -ErrorAction Stop
-
-    $ap = $user.CustomSecurityAttributes.AdditionalProperties
-    if (-not $ap) { return $null }
-
-    # Case-insensitive key lookup helper (works for Hashtable and Dictionary<,>)
-    $getVal = {
-        param($bag, $wanted)
-        if ($null -eq $bag) { return $null }
-        foreach ($k in $bag.Keys) {
-            if ($k -ieq $wanted) { return $bag[$k] }
+    $sessionHosts = Get-AzWvdSessionHost -HostPoolName $hpName -ResourceGroupName $hpRgName
+    foreach ($sessionHost in $sessionHosts) {
+        if ($sessionHost.AssignedUser -ieq $upn) {
+            $userSessionHost = $sessionHost
+            break
         }
-        return $null
     }
 
-    $set = & $getVal $ap $AttributeSet
-    if (-not $set) { return $null }
-
-    $val = & $getVal $set $AttributeName
-    if ($null -eq $val) { return $null }
-    if ($val -is [string] -and [string]::IsNullOrWhiteSpace($val)) { return $null }
-
-    return [string]$val
+    if ($userSessionHost) { break }
 }
 
-<#
-.SYNOPSIS
-    Merges the tag onto an Azure VM without overwriting other tags.
-#>
-function Set-VmCompanyNameTag {
-    param(
-        [Parameter(Mandatory)] [string] $VmResourceId,
-        [Parameter(Mandatory)] [string] $TagName,
-        [Parameter(Mandatory)] [string] $Value
-    )
-
-    Update-AzTag `
-        -ResourceId $VmResourceId `
-        -Tag        @{ $TagName = $Value } `
-        -Operation  Merge | Out-Null
+if (-not $userSessionHost) {
+    Write-Output "[ERROR] No session host found for user - $upn in workspace - $workspaceName 😢"
+    Write-Error  "[ERROR] No session host found for user - $upn in workspace - $workspaceName 😢"
+    throw
 }
 
-<#
-.SYNOPSIS
-    Builds a single result row for the summary report.
-#>
-function New-Result {
-    param(
-        [string] $HostPool,
-        [string] $SessionHost,
-        [string] $AssignedUser,
-        [string] $CompanyName,
-        [string] $Status
-    )
+# Session host name has the form "hostpoolName/vmName.domain" — take the VM name.
+$vmName = ($userSessionHost.Name -split "/")[-1].Split(".")[0]
 
-    [PSCustomObject]@{
-        HostPool     = $HostPool
-        SessionHost  = $SessionHost
-        AssignedUser = $AssignedUser
-        CompanyName  = $CompanyName
-        Status       = $Status
-    }
+$vm = Get-AzVM | Where-Object { $_.Name -ieq $vmName }
+
+if (-not $vm) {
+    Write-Output "[ERROR] VM - $vmName for user - $upn not found 🚩"
+    Write-Error  "[ERROR] VM - $vmName for user - $upn not found 🚩"
+    throw
 }
 
-<#
-.SYNOPSIS
-    Processes a single session host: reads the assigned user's attribute and
-    tags the underlying VM with it. Already-tagged VMs are skipped before any
-    Graph work is done.
-#>
-function Invoke-SessionHostTagging {
-    param(
-        [Parameter(Mandatory)] [string]    $HostPoolName,
-        [Parameter(Mandatory)] [object]    $SessionHost,
-        [Parameter(Mandatory)] [hashtable] $VmLookup,
-        [Parameter(Mandatory)] [string]    $AttributeSet,
-        [Parameter(Mandatory)] [string]    $AttributeName,
-        [Parameter(Mandatory)] [string]    $TagName
-    )
+# Determine current power state so a stopped, deallocated or hibernated VM is started before restarting.
+$powerState = (Get-AzVM -ResourceGroupName $vm.ResourceGroupName -Name $vmName -Status).Statuses |
+    Where-Object { $_.Code -like "PowerState/*" } |
+    Select-Object -First 1 -ExpandProperty Code
 
-    $vmName = Get-SessionHostVmName -SessionHost $SessionHost
-    $user   = $SessionHost.AssignedUser
-
-    if ([string]::IsNullOrWhiteSpace($user)) {
-        Write-Output "  $vmName : no AssignedUser - skipped"
-        return New-Result -HostPool $HostPoolName -SessionHost $vmName `
-                          -Status   "Skipped (no assigned user)"
-    }
-
-    $vm = $VmLookup[$vmName]
-    if (-not $vm) {
-        Write-Warning "  $vmName : VM not found in subscription"
-        return New-Result -HostPool $HostPoolName -SessionHost $vmName `
-                          -AssignedUser $user -Status "Failed (VM not found)"
-    }
-
-    # Already tagged - skip before doing any Graph work.
-    if ($vm.Tags -and $vm.Tags.ContainsKey($TagName)) {
-        Write-Output "  $vmName : already has tag $TagName='$($vm.Tags[$TagName])' - skipped"
-        return New-Result -HostPool $HostPoolName -SessionHost $vmName `
-                          -AssignedUser $user -Status "Skipped (already tagged)"
-    }
-
-    try {
-        $companyName = Get-UserCompanyName -UserPrincipalNameOrId $user `
-                                           -AttributeSet  $AttributeSet `
-                                           -AttributeName $AttributeName
-    }
-    catch {
-        Write-Warning "  $vmName : failed to read user '$user' - $($_.Exception.Message)"
-        return New-Result -HostPool $HostPoolName -SessionHost $vmName `
-                          -AssignedUser $user -Status "Failed (read user)"
-    }
-
-    if ([string]::IsNullOrWhiteSpace($companyName)) {
-        Write-Output "  $vmName : user '$user' has no $AttributeSet.$AttributeName"
-        return New-Result -HostPool $HostPoolName -SessionHost $vmName `
-                          -AssignedUser $user -Status "No CompanyName"
-    }
-
-    Write-Output "  $vmName : $user -> $AttributeSet.$AttributeName='$companyName'"
-
-    try {
-        Set-VmCompanyNameTag -VmResourceId $vm.Id -TagName $TagName -Value $companyName
-        Write-Output "  $vmName : $user -> tag $TagName='$companyName'"
-        $status = "Tagged"
-    }
-    catch {
-        Write-Warning "  $vmName : failed to tag - $($_.Exception.Message)"
-        $status = "Failed (tag): $($_.Exception.Message)"
-    }
-
-    return New-Result -HostPool $HostPoolName -SessionHost $vmName `
-                      -AssignedUser $user -CompanyName $companyName -Status $status
+if ($powerState -ne "PowerState/running") {
+    Write-Output "[INFO] Session host VM - $vmName is not running ($powerState). Starting it... ⚡"
+    Start-AzVM -ResourceGroupName $vm.ResourceGroupName -Name $vmName | Out-Null
+    Write-Output "[INFO] Session host VM - $vmName started ✅"
 }
 
-<#
-.SYNOPSIS
-    Processes every session host in a single host pool.
-#>
-function Invoke-HostPoolProcessing {
-    param(
-        [Parameter(Mandatory)] [string]    $HostPoolName,
-        [Parameter(Mandatory)] [object[]]  $Catalog,
-        [Parameter(Mandatory)] [hashtable] $VmLookup,
-        [Parameter(Mandatory)] [string]    $AttributeSet,
-        [Parameter(Mandatory)] [string]    $AttributeName,
-        [Parameter(Mandatory)] [string]    $TagName
-    )
+Write-Output "[INFO] Restarting session host VM - $vmName for user - $upn... 🔄"
 
-    Write-Output "`nHost Pool: $HostPoolName"
+Restart-AzVM -ResourceGroupName $vm.ResourceGroupName -Name $vmName | Out-Null
 
-    $rg = Get-HostPoolResourceGroup -HostPoolName $HostPoolName -Catalog $Catalog
-    if (-not $rg) {
-        Write-Warning "  Host pool not found in subscription - skipped"
-        return
-    }
-
-    try {
-        $sessionHosts = Get-AzWvdSessionHost `
-            -ResourceGroupName $rg `
-            -HostPoolName      $HostPoolName `
-            -ErrorAction Stop
-    }
-    catch {
-        Write-Warning "  Failed to list session hosts: $($_.Exception.Message)"
-        return
-    }
-
-    foreach ($sh in $sessionHosts) {
-        Invoke-SessionHostTagging -HostPoolName  $HostPoolName `
-                                  -SessionHost   $sh `
-                                  -VmLookup      $VmLookup `
-                                  -AttributeSet  $AttributeSet `
-                                  -AttributeName $AttributeName `
-                                  -TagName       $TagName
-    }
-}
-
-# ------------------------------------------------------------------
-# MAIN
-# ------------------------------------------------------------------
-
-Connect-Services -SubscriptionId $SubscriptionId `
-                 -ManagedIdentityClientId $ManagedIdentityClientId
-
-Write-Output "Loading host pool catalog..."
-$allHostPools = Get-AzWvdHostPool
-
-Write-Output "Loading VM inventory..."
-$vmLookup = @{}
-foreach ($vm in Get-AzVM) {
-    $vmLookup[$vm.Name] = $vm
-}
-
-$results = foreach ($hpName in $HostPools) {
-    Invoke-HostPoolProcessing -HostPoolName  $hpName `
-                              -Catalog       $allHostPools `
-                              -VmLookup      $vmLookup `
-                              -AttributeSet  $AttributeSet `
-                              -AttributeName $AttributeName `
-                              -TagName       $TagName
-}
-
-Write-Output "`n===== SUMMARY ====="
-$results | Format-Table -AutoSize | Out-String | Write-Output
-
-Disconnect-MgGraph | Out-Null
+Write-Output "[INFO] Successfully restarted session host VM - $vmName for user - $upn 🎉"
