@@ -1,0 +1,5 @@
+az vm extension show \
+  --resource-group AVD-9900-Untrust-RG \
+  --vm-name 9900-Untrst-49 \
+  --name AADLoginForWindows \
+  --query "settings" -o json
